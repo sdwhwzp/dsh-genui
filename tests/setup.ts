@@ -7,6 +7,27 @@
  * Also stubs requestAnimationFrame for the staggered-reveal animation and
  * SVG measure APIs jsdom lacks.
  */
+import { createElement } from 'react'
+import { vi } from 'vitest'
+
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async (importOriginal) => {
+  const primitives = await importOriginal<typeof import('@deepseek-ai/dsh-client-ui-primitives')>()
+  const labels = {
+    code: { copyLabel: '复制', copiedLabel: '复制成功' },
+    footnotes: '脚注',
+  }
+  return {
+    ...primitives,
+    GenuiActionContext: undefined,
+    getGenuiComponent: undefined,
+    registerGenuiComponent: undefined,
+    registerFenceRenderer: undefined,
+    MarkdownText: (props: Omit<Parameters<typeof primitives.MarkdownText>[0], 'labels'>) => (
+      createElement(primitives.MarkdownText, { ...props, labels })
+    ),
+  }
+})
+
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import { renderGenuiFence } from '../src/client/index.tsx'
 

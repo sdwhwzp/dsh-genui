@@ -9,6 +9,7 @@ import { CodeBlock, DiffBlock, JsonTree, writeClipboard } from '@deepseek-ai/dsh
 import css from '../GenuiBlock.module.css'
 import { GENUI_LIMITS } from '../guard.ts'
 import { PlotBlock } from '../PlotBlock.tsx'
+import { codeBlockLabels, diffBlockLabels, jsonTreeLabels } from '../primitive-labels.ts'
 import { renderNode } from './render-node.tsx'
 import type { AnswersState, GenuiBlockProps } from './state.ts'
 import type {
@@ -89,7 +90,7 @@ export const PlotNode = memo(function PlotNode({ plot }: { plot: GenuiPlot }) {
 
 /** Diff: 收编 dsh DiffBlock (same path/oldText/newText shape as DiffHunk). */
 export const DiffNode = memo(function DiffNode({ node }: { node: GenuiDiff }) {
-  return <DiffBlock diffs={node.diffs} />
+  return <DiffBlock diffs={node.diffs} labels={diffBlockLabels} />
 })
 
 /** Json: 收编 dsh JsonTree. */
@@ -98,12 +99,12 @@ export const JsonNode = memo(function JsonNode({ node }: { node: GenuiJson }) {
   if (typeof data !== 'object' || data === null) {
     return <div className={css.jsonScalar}>{String(data)}</div>
   }
-  return <JsonTree data={data as object | unknown[]} copyable />
+  return <JsonTree data={data as object | unknown[]} label="JSON 数据" labels={jsonTreeLabels} copyable />
 })
 
 /** Code: 收编 dsh CodeBlock with explicit language. */
 export const CodeNode = memo(function CodeNode({ node }: { node: GenuiCode }) {
-  return <CodeBlock code={node.code.slice(0, GENUI_LIMITS.maxCode)} lang={node.lang} />
+  return <CodeBlock code={node.code.slice(0, GENUI_LIMITS.maxCode)} lang={node.lang} {...codeBlockLabels} />
 })
 
 /**

@@ -22,6 +22,7 @@ import { repairGenuiSpec } from './guard.ts'
 import { fenceStateKey } from './interaction-store.ts'
 import { parsePartialGenuiSpec } from './parse-partial.ts'
 import { applyPanelOperation, diagnosePanelBudget, type PanelOperationStatus } from './panel-store.ts'
+import { codeBlockLabels } from './primitive-labels.ts'
 import type { GenuiSpec } from './spec.ts'
 import { completeFenceJson, describeJsonFailure, isCompleteJson, repairFenceJson } from '../shared/fence-repair.ts'
 
@@ -85,7 +86,7 @@ function FenceFallback({ raw, fenceKey }: { raw: string; fenceKey: Key }) {
           ⚠️ dsh-ui fence JSON 解析失败{diagnostic} —— 围栏保持为代码块；请让模型检查并修复 JSON 后重发。
         </div>
       )}
-      <CodeBlock key={fenceKey} code={`${raw}\n`} lang="dsh-ui" />
+      <CodeBlock key={fenceKey} code={`${raw}\n`} lang="dsh-ui" {...codeBlockLabels} />
     </div>
   )
 }
