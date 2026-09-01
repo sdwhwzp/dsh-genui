@@ -14,8 +14,9 @@
  * Panel updates afterwards still flow through the model (say "更新面板" or
  * re-run render_ui) or through another /panel.
  */
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { GenuiSpec } from './spec.ts'
 import { requestPanelExpand, setLocalPanel } from './panel-store.ts'
 

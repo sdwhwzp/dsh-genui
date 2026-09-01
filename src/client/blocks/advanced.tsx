@@ -5,7 +5,10 @@
  * @module @changfenhuang/dsh-genui/client/blocks/advanced
  */
 import { memo, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { CodeBlock, DiffBlock, JsonTree, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  CodeBlock, DiffBlock, JsonTree, writeClipboard,
+  type DiffBlockLabels, type JsonTreeLabels,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import css from '../GenuiBlock.module.css'
 import { GENUI_LIMITS } from '../guard.ts'
 import { PlotBlock } from '../PlotBlock.tsx'
@@ -18,6 +21,30 @@ import type {
 
 const CALLOUT_TONES: Record<string, string> = {
   info: css.calloutInfo!, success: css.calloutSuccess!, warning: css.calloutWarning!, error: css.calloutError!,
+}
+
+const COPY_LABEL = '复制'
+const COPIED_LABEL = '已复制'
+const DIFF_LABELS: DiffBlockLabels = {
+  copy: COPY_LABEL,
+  copied: COPIED_LABEL,
+  collapseAria: '收起差异',
+  expandAria: hidden => `展开 ${hidden} 行差异`,
+  collapse: '收起',
+  expand: hidden => `展开 ${hidden} 行`,
+  files: count => `${count} 个文件`,
+}
+const JSON_LABELS: JsonTreeLabels = {
+  copyValue: '复制值',
+  copyJson: '复制 JSON',
+  copyPath: '复制路径',
+  copyPrettyJson: '复制格式化 JSON',
+  copyCompactJson: '复制紧凑 JSON',
+  copied: COPIED_LABEL,
+  copyFailed: '复制失败',
+  collapseNode: '收起节点',
+  expandNode: '展开节点',
+  copyButtonTitle: action => action,
 }
 
 /** Callout: a tinted notice box with an optional heading. */
@@ -89,7 +116,7 @@ export const PlotNode = memo(function PlotNode({ plot }: { plot: GenuiPlot }) {
 
 /** Diff: 收编 dsh DiffBlock (same path/oldText/newText shape as DiffHunk). */
 export const DiffNode = memo(function DiffNode({ node }: { node: GenuiDiff }) {
-  return <DiffBlock diffs={node.diffs} />
+  return <DiffBlock diffs={node.diffs} labels={DIFF_LABELS} />
 })
 
 /** Json: 收编 dsh JsonTree. */
@@ -98,12 +125,19 @@ export const JsonNode = memo(function JsonNode({ node }: { node: GenuiJson }) {
   if (typeof data !== 'object' || data === null) {
     return <div className={css.jsonScalar}>{String(data)}</div>
   }
-  return <JsonTree data={data as object | unknown[]} copyable />
+  return <JsonTree data={data as object | unknown[]} label="JSON 数据" labels={JSON_LABELS} copyable />
 })
 
 /** Code: 收编 dsh CodeBlock with explicit language. */
 export const CodeNode = memo(function CodeNode({ node }: { node: GenuiCode }) {
-  return <CodeBlock code={node.code.slice(0, GENUI_LIMITS.maxCode)} lang={node.lang} />
+  return (
+    <CodeBlock
+      code={node.code.slice(0, GENUI_LIMITS.maxCode)}
+      lang={node.lang}
+      copyLabel={COPY_LABEL}
+      copiedLabel={COPIED_LABEL}
+    />
+  )
 })
 
 /**

@@ -19,8 +19,8 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { GenericCallView, GenericResultView, JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { GenuiSpec } from '../client/spec.ts'
 import { GENUI_LIMITS, countDeclaredGenuiNodes, countGenuiNodes, repairGenuiSpec } from '../client/guard.ts'
 import { completeFenceJson } from '../shared/fence-repair.ts'
