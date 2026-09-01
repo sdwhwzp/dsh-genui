@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.8
+
+- Compile against Harness `0.1.2-alpha.3`: inject the session id into keyed tool views, use the current JSON value package, and declare Alpha.3 peers explicitly.
+
 ## 0.9.7
 
 - Support the Harness 0.1.2-alpha.1 client session controller without the removed client-runtime package.

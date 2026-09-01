@@ -151,6 +151,7 @@ export function apply(ctx: Context): () => void {
   disposers.push(ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',
     key: 'render_ui',
+    inject: sessionId => ({ sessionId: sessionId as SessionId }),
   }, GenuiToolView)))
   // Session panel dock: a session-scoped, always-present seat above the
   // composer (TodoDock posture). Renders the session's latest render_ui
@@ -159,7 +160,7 @@ export function apply(ctx: Context): () => void {
     name: 'conversation.input.dock',
     id: 'genui-panel',
     order: 50,
-    inject: (sessionId: SessionId): GenuiPanelInjected => panelActionSend(ctx, sessionId),
+    inject: (sessionId): GenuiPanelInjected => panelActionSend(ctx, sessionId as SessionId),
   }, GenuiPanel)))
   // /panel slash command: a deterministic, client-side entry point that
   // opens the panel dock (publishes the default spec + expand request),
