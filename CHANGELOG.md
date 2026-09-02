@@ -2,7 +2,7 @@
 
 ## 0.9.8
 
-- Compile against Harness `0.1.2-alpha.4`: inject the session id into keyed tool views, use the current JSON value package, declare Alpha.4 peers explicitly, and include the current upstream chart contract and rendering fixes.
+- Compile against Harness `0.1.2-alpha.4` while retaining the published Alpha.3 peer floor: inject the session id into keyed tool views, use the current JSON value package, and include the current upstream chart contract and rendering fixes.
 
 ## 0.9.7
 

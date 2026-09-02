@@ -14,14 +14,14 @@ describe('Harness Alpha.4 compatibility', () => {
     expect([manifest, ...sources].join('\n')).not.toContain('@deepseek-ai/dsh-client-runtime')
   })
 
-  it('declares the Alpha.4 client entry packages', async () => {
+  it('declares the published Alpha.3 peer floor used by Alpha.4', async () => {
     const manifest = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as {
       peerDependencies: Record<string, string>
     }
 
-    expect(manifest.peerDependencies['@deepseek-ai/dsh-api-session-controller']).toBe('^0.1.2-alpha.4')
-    expect(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-renderer']).toBe('^0.1.2-alpha.4')
-    expect(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-tool']).toBe('^0.1.2-alpha.4')
-    expect(manifest.peerDependencies['@deepseek-ai/dsh-util-values']).toBe('^0.1.2-alpha.4')
+    expect(manifest.peerDependencies['@deepseek-ai/dsh-api-session-controller']).toBe('^0.1.2-alpha.3')
+    expect(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-renderer']).toBe('^0.1.2-alpha.3')
+    expect(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-tool']).toBe('^0.1.2-alpha.3')
+    expect(manifest.peerDependencies['@deepseek-ai/dsh-util-values']).toBe('^0.1.2-alpha.3')
   })
 })
