@@ -1,12 +1,27 @@
 # Changelog
 
-## 0.9.8
+## [Unreleased]
 
-- Compile against Harness `0.1.2-alpha.4` while retaining the published Alpha.3 peer floor: inject the session id into keyed tool views, use the current JSON value package, and include the current upstream chart contract and rendering fixes.
+## [0.9.9] - 2026-09-09
 
-## 0.9.7
+- 预览宿主验证更新到 DSH 0.1.5-alpha.1，正式宿主仍为 0.1.2-rc.1；安装包验证覆盖 Diff/Code/JSON 渲染及真实复制。
 
-- Support the Harness 0.1.2-alpha.1 client session controller without the removed client-runtime package.
+- 测试环境初始化不再预加载生产模块；围栏宿主由需要它的测试显式加载，图表测试可直接使用普通模块 mock（#115）。
+
+### 兼容性
+- dsh-genui 0.9.9 的 DSH 支持范围为 `^0.1.2-rc.1 || ^0.1.5-alpha.1`。使用 DSH `<=0.1.1-rc.x` 的用户请固定使用 dsh-genui `0.9.8`。
+
+### 修复
+- **Diff 组件适配 rc.1（issue #113）**：为 dsh `DiffBlock`、`CodeBlock` 与 `JsonTree` 补齐调用方负责的中文 labels，并覆盖复制交互，避免 rc.1 必填文案遗漏导致类型检查失败或界面出现 `undefined`。
+- **统一 GenUI 组件协议（issue #102）**：新增 runtime schema registry，统一原生字段 alias 归一化、canonical 校验、repair 和 unknown-field 诊断；`validate_dsh_ui`、`render_ui` 与 dsh-ui fence renderer 共用同一处理流水线。`card` / `table` / `callout` / `steps` 的高频字段别名会给出 warning 后归一化，自定义 renderer 类型保持 opaque，真正被 repair 丢弃的原生节点仍会明确报错。
+
+## [0.9.8] - 2026-09-05
+### 兼容性
+- 支持 DSH 0.1.2-rc.1 与 0.1.3-alpha.1：依赖范围显式允许这两个预发布系列，CI 和发布验收固定到对应官方标签。
+- 真机验收使用宿主当前的可编辑输入区发送消息，删除旧文本框路径。
+
+### 修复
+- **/panel 候选按 query 前缀过滤（issue #98）**：`createPanelSlashSource` 的 `candidates` 此前无视 `req.query` 恒返回 `panel` 一项——输入与指令/技能都不匹配的 query 时，genui 组成了菜单里唯一 ready 非空的分组，宿主 `menuReduce` 的 `firstHighlight` 落到 `panel` 且后续不让位，默认高亮被抢占；此时按 Enter 走 `pick-highlighted` 会误执行 `/panel` 而非目标命令/技能。现在 query 非空且不是 `panel` 前缀（大小写不敏感）时返回空数组，该分组从菜单消失。`matchEnter` 行为不变（裸 `/panel` 回车照常认领）。
 
 ## [0.9.6] - 2026-08-28
 ### 兼容性

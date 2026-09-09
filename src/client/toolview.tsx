@@ -11,8 +11,9 @@
  * render_ui calls update one surface instead of stacking tool-row cards.
  */
 import { useEffect, useMemo } from 'react'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { GenuiBlock } from './GenuiBlock.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { repairGenuiSpec } from './guard.ts'
@@ -25,7 +26,7 @@ import css from './GenuiBlock.module.css'
  * node once the call completes; while it runs (or on replay without meta)
  * the summary fallback is shown.
  */
-export function GenuiToolView({ toolName, block, sessionId }: ToolCallViewProps & { sessionId: SessionId }) {
+export function GenuiToolView({ toolName, block, sessionId }: ToolCallViewProps) {
   // `meta` exists only on the settled result node; running calls (and
   // replayed logs without the projection) fall back to the summary row.
   // Memoized so the publish effect only fires when the settled spec

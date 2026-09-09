@@ -3,7 +3,7 @@
 // must extract and render; unfinished tails must drop.
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MarkdownText } from './markdown-labels.tsx'
 import { parsePartialGenuiSpec, collectPartialCandidates, setMaxPartialRepairAttempts } from '../src/client/parse-partial.ts'
 
 afterEach(cleanup)
@@ -39,6 +39,25 @@ describe('parsePartialGenuiSpec', () => {
     const spec = parsePartialGenuiSpec('{"items":[{"type":"text","content":"A"},{"type":"stat","labe')
     expect(spec?.items).toHaveLength(1)
     expect((spec!.items[0] as { type: string }).type).toBe('text')
+  })
+
+  it('does not expose a partial nested EChart option as a finished component', () => {
+    const first = '{"type":"text","content":"A"}'
+    const partialEchart = '{"type":"echart","option":{"tooltip":{"trigger":"axis"},"grid":{"left":48},"xAxis":{"type":"category","data":["质量指标记录"]}'
+    const spec = parsePartialGenuiSpec(`{"items":[${first},${partialEchart}`)
+
+    expect(spec?.items).toHaveLength(1)
+    expect((spec!.items[0] as { type: string }).type).toBe('text')
+  })
+
+  it('does not render a single partial EChart before its component closes', () => {
+    const partial = '{"items":[{"type":"echart","option":{"tooltip":{"trigger":"axis"},"grid":{"left":48},"xAxis":{"type":"category","data":["质量指标记录"]}'
+    expect(parsePartialGenuiSpec(partial)).toBeNull()
+  })
+
+  it('waits for a bare component root instead of treating its data item as complete', () => {
+    const partial = '{"type":"chart","data":[{"label":"A","value":1}'
+    expect(parsePartialGenuiSpec(partial)).toBeNull()
   })
 
   it('extracts two finished components before the third', () => {

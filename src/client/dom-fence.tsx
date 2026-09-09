@@ -47,6 +47,7 @@
 import { Fragment, isValidElement, type Key, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
 import { renderResolvedFenceNode, type GenuiFenceContext } from './fence-render.tsx'
