@@ -85,6 +85,39 @@ function assertFileTreeLayout(container: HTMLElement): void {
   expect(container.textContent).toContain('README.md')
 }
 
+describe('surface elevation contract', () => {
+  it('puts cards on the elevated host layer, not the page layer', () => {
+    const css = readFileSync(join(process.cwd(), 'src/client/GenuiBlock.module.css'), 'utf8')
+    // Dark theme: page 21,21,23 → layer-1 35,35,36 (only 14 units: "a black
+    // box") → layer-2 44,44,46. Cards, stats and callouts must sit on layer-2.
+    const card = /\.card \{([^}]*)\}/.exec(css)
+    expect(card, '.card rule must exist').not.toBeNull()
+    expect(card![1]).toMatch(/background: var\(--dsl-g-surface\)/)
+    const stat = /\.stat \{([^}]*)\}/.exec(css)
+    expect(stat![1]).toMatch(/background: var\(--dsl-g-surface\)/)
+    const callout = /\.callout \{([^}]*)\}/.exec(css)
+    expect(callout![1]).toMatch(/background: var\(--dsl-g-surface\)/)
+  })
+
+  it('gives surfaces a visible outline and a lift (light theme has no layers)', () => {
+    const css = readFileSync(join(process.cwd(), 'src/client/GenuiBlock.module.css'), 'utf8')
+    // Light theme maps every bg layer to white and its border-l1 is 4% black —
+    // a card there would be invisible without border-l2 + a shadow.
+    expect(css).toMatch(/--dsl-g-shadow-card:/)
+    expect(css).toMatch(/--dsl-g-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 10%/)
+    expect(css).toMatch(/--dsl-g-border-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 24%/)
+    for (const rule of ['card', 'stat', 'callout', 'hero', 'accordion']) {
+      const block = new RegExp(`\\.${rule} \\{([^}]*)\\}`).exec(css)
+      expect(block, `.${rule} must exist`).not.toBeNull()
+      // Outline + surface tint are DERIVED from the theme's label colour: the
+      // light theme maps every layer to white, so host layer/border tokens
+      // alone cannot separate a card from the page.
+      expect(block![1], `.${rule} needs a visible outline`).toMatch(/border: 1px solid var\(--dsl-g-border-surface\)/)
+      expect(block![1], `.${rule} needs a lift`).toMatch(/box-shadow: var\(--dsl-g-shadow-card\)/)
+    }
+  })
+})
+
 describe('bento card layout contract', () => {
   it('lets a card absorb the row height and centre its graphic', () => {
     const css = readFileSync(join(process.cwd(), 'src/client/GenuiBlock.module.css'), 'utf8')

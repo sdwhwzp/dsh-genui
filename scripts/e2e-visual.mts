@@ -168,6 +168,13 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 3000 } })
   const pageErrors: string[] = []
   page.on('pageerror', e => pageErrors.push(String(e)))
+  // Engine-split evidence: which lazy assets the page actually pulls.
+  const assetRequests: string[] = []
+  page.on('request', req => {
+    const url = req.url()
+    const match = /\/assets\/([a-z-]+\.js)/.exec(url)
+    if (match !== null) assetRequests.push(match[1]!)
+  })
   const consoleLines: string[] = []
   page.on('console', msg => consoleLines.push(`${msg.type()}: ${msg.text()}`))
   // 强制 DOM 通道：0.1.3+ 宿主带 registry 扩展点时插件默认走 registry 通道，
@@ -218,15 +225,18 @@ try {
   }
   if (blocks === 0) {
     await page.screenshot({ path: join(OUT_DIR, 'visual-fail.png'), fullPage: true })
-    const genuiLog = consoleLines.filter(l => l.includes('genui')).slice(0, 5).join(' | ')
+    const genuiLog = consoleLines.filter(l => l.includes('genui')).slice(0, 6).join(' | ')
+    const otherLog = consoleLines.slice(-14).join('\n    ')
     const diag = await page.evaluate(() => ({
       injected: document.querySelectorAll('[data-visual-inject]').length,
       containers: document.querySelectorAll('.genui-dom-fence').length,
       genuiRoots: document.querySelectorAll('[data-genui]').length,
       hidden: document.querySelectorAll('.md-code-block[style*="display: none"]').length,
       containerHtml: document.querySelector('.genui-dom-fence')?.innerHTML.slice(0, 300) ?? 'none',
+      processed: document.querySelector('[data-visual-inject]')?.hasAttribute('data-genui-rendered') ?? null,
+      codeBlocks: document.querySelectorAll('.md-code-block').length,
     }))
-    throw new Error(`30s 内画廊未渲染（截图 visual-fail.png；pageerrors: ${pageErrors.slice(0, 3).join(' | ') || '无'}；genui console: ${genuiLog || '无'}；diag: ${JSON.stringify(diag)}）`)
+    throw new Error(`30s 内画廊未渲染（pageerrors: ${pageErrors.slice(0, 3).join(' | ') || '无'}；genui: ${genuiLog || '无'}；其他 console: ${otherLog || '无'}；diag: ${JSON.stringify(diag)}）`)
   }
   log(`✓ 画廊渲染成功（${blocks} 个 data-genui 块）`)
 
@@ -280,6 +290,15 @@ try {
   }
   log('✓ 流式骨架：出现 → settle 后换成真组件')
 
+  // ── 引擎渐进披露验证 ─────────────────────────────────────────────────────
+  // 基础图型只需 core 引擎；进阶图型（radar/sankey/…）或裸 option 才拉完整包。
+  if (assetRequests.includes('echarts-core.js')) {
+    if (!assetRequests.includes('echarts-full.js')) {
+      throw new Error(`radar/sankey 采样在场却没拉完整引擎（请求：${assetRequests.join(', ')}）`)
+    }
+    log(`✓ 引擎按需：${[...new Set(assetRequests)].join(' + ')}`)
+  }
+
   // ── 本地筛选（数据绑定）验证 ─────────────────────────────────────────────
   // 绑定筛选是纯客户端行为：输入框的值直接过滤表格，不发任何请求。断言它在真实
   // 浏览器里确实生效，且清空后恢复。
@@ -316,6 +335,68 @@ try {
   })
   if (!treeCheck.ok) throw new Error(`文件树没有纵向堆叠（${treeCheck.reason}）`)
   log(`✓ 文件树：${treeCheck.rows} 行纵向堆叠 · ${treeCheck.guides} 条层级引导线 · ${treeCheck.glyphs} 个图标`)
+
+  // ── accent 卡片表面必须中性 ───────────────────────────────────────────────
+  // 回归：accent 曾把 7% 色相混进卡片底色，深色主题下发脏发土。色相只允许出现
+  // 在描边与标题上，表面要与普通卡片完全同色。
+  const accentSurface = await page.evaluate(() => {
+    // The accent card is the only one carrying the inline custom property; its
+    // siblings in the same grid are the neutral controls.
+    const accentEl = document.querySelector('[style*="--dsl-card-accent"]') as HTMLElement | null
+    const row = accentEl?.parentElement ?? null
+    const plainEl = row === null
+      ? null
+      : [...row.children].find(child => child !== accentEl
+        && !(child.getAttribute('style') ?? '').includes('--dsl-card-accent')) as HTMLElement | undefined
+    if (accentEl === null || plainEl === undefined || plainEl === null) return { ok: true, skipped: true }
+    const accent = accentEl
+    const plain = plainEl
+    // No inner named function: esbuild's keepNames helper (__name) is not
+    // defined inside the page context and the evaluate call would throw.
+    return {
+      ok: getComputedStyle(accent).backgroundColor === getComputedStyle(plain).backgroundColor,
+      skipped: false,
+      accent: getComputedStyle(accent).backgroundColor,
+      plain: getComputedStyle(plain).backgroundColor,
+      border: getComputedStyle(accent).borderTopColor,
+    }
+  })
+  if (!accentSurface.ok) {
+    throw new Error(`accent 卡片表面被染色（accent=${accentSurface.accent} / 普通=${accentSurface.plain}）`)
+  }
+  if (!accentSurface.skipped) {
+    log(`✓ accent 卡片：表面 ${accentSurface.accent}（与普通卡片一致）· 描边 ${accentSurface.border}`)
+  }
+
+  // ── ECharts 配色验证（读 canvas 像素）────────────────────────────────────
+  // 回归：宿主把 --dsw-static-* 定义在 body 上，而引擎只从 :root 读 → 每个
+  // 系列都回退成同一个强调色，多序列图全是一片蓝。这里直接数像素色数。
+  const hueCheck = await page.evaluate(() => {
+    const canvases = [...document.querySelectorAll('[data-genui-echart] canvas')] as HTMLCanvasElement[]
+    const target = canvases[1] ?? canvases[0]
+    if (target === undefined) return { ok: false, reason: '没有 canvas' }
+    const ctx = target.getContext('2d')
+    if (ctx === null) return { ok: false, reason: '没有 2d 上下文' }
+    const { data } = ctx.getImageData(0, 0, target.width, target.height)
+    const hues = new Set<string>()
+    let saturated = 0
+    for (let i = 0; i < data.length; i += 4 * 37) {
+      const r = data[i] ?? 0
+      const g = data[i + 1] ?? 0
+      const b = data[i + 2] ?? 0
+      if ((data[i + 3] ?? 0) < 200) continue
+      // Only count SATURATED pixels: greys are axes/labels/background and would
+      // let a single-colour chart pass this check.
+      if (Math.max(r, g, b) - Math.min(r, g, b) < 40) continue
+      saturated += 1
+      hues.add(`${r >> 5}-${g >> 5}-${b >> 5}`)
+    }
+    // The radar preset draws two series: two distinct saturated hues are the
+    // minimum proof that the palette did not collapse to one accent colour.
+    return { ok: hues.size >= 2 && saturated >= 20, hues: hues.size, saturated, canvases: canvases.length }
+  })
+  if (!hueCheck.ok) throw new Error(`ECharts 配色异常（${JSON.stringify(hueCheck)}）`)
+  log(`✓ ECharts 配色：${hueCheck.canvases} 张画布，雷达图 ${hueCheck.hues} 种饱和色（${hueCheck.saturated} 像素）`)
 
   // ── 图表 tooltip 验证（真实 hover）────────────────────────────────────────
   const stackSeg = page.locator('[class*="stackSeg"]').first()

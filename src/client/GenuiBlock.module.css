@@ -60,6 +60,19 @@
   --dsl-g-tint: 8%;
   --dsl-g-tint-strong: 14%;
   --dsl-g-font-mono: var(--ds-font-family-code, ui-monospace, 'SF Mono', monospace);
+  /* Elevation, theme-agnostic: the light theme maps EVERY bg layer to white,
+     so a card there is white-on-white and a border alone cannot carry the
+     hierarchy. Both a tint of the theme's own label colour and the surface
+     border are derived from tokens that exist in both themes:
+       light: label ≈ near-black  → tint darkens the white card to ~#f5f5f5
+       dark : label ≈ near-white  → tint lifts the card off the page      */
+  /* 4% / 14% measured as 255→246 and read as "no difference" in review: the
+     tint now sits clearly above the perception floor. Light: page 255 → card
+     ~232, border ~190. Dark: page 21 → card ~62 (an unmistakable elevation). */
+  --dsl-g-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 10%,
+    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, transparent))));
+  --dsl-g-border-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent);
+  --dsl-g-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 16px rgba(0, 0, 0, 0.07);
 }
 
 .block {
@@ -111,14 +124,19 @@
 }
 
 .card {
-  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block));
-  border: 1px solid var(--dsl-g-border);
+  /* Elevated surface: on the dark theme layer-1 (35,35,36) sits only ~14 units
+     above the page (21,21,23) and read as "a black box". layer-2 (44,44,46) is
+     the host's own elevated surface; light theme maps all layers to one colour,
+     so this changes nothing there. */
+  background: var(--dsl-g-surface);
+  border: 1px solid var(--dsl-g-border-surface);
   border-radius: var(--dsl-g-radius-surface);
   padding: var(--dsl-g-gap-lg);
   display: flex;
   flex-direction: column;
   gap: var(--dsl-g-gap-md);
   min-width: 0;
+  box-shadow: var(--dsl-g-shadow-card);
 }
 /* Bento rows size every card to the tallest one. Without this, a short card
    (a single donut next to a tall table) kept its content pinned to the top and
@@ -294,30 +312,31 @@
   gap: 6px;
   padding: 22px 24px 24px;
   border-radius: 14px;
-  border: 1px solid var(--dsl-g-border);
+  border: 1px solid var(--dsl-g-border-surface);
   background:
     radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--dsl-g-accent) 22%, transparent) 0%, transparent 58%),
     linear-gradient(180deg, color-mix(in srgb, var(--dsl-g-accent) 7%, transparent), transparent 70%),
-    var(--dsw-alias-bg-layer-1, transparent);
+    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, transparent));
   overflow: hidden;
+  box-shadow: var(--dsl-g-shadow-card);
 }
 .heroSuccess {
   background:
     radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) 20%, transparent) 0%, transparent 58%),
     linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) 6%, transparent), transparent 70%),
-    var(--dsw-alias-bg-layer-1, transparent);
+    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, transparent));
 }
 .heroWarning {
   background:
     radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) 20%, transparent) 0%, transparent 58%),
     linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) 6%, transparent), transparent 70%),
-    var(--dsw-alias-bg-layer-1, transparent);
+    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, transparent));
 }
 .heroDanger {
   background:
     radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--dsw-alias-state-error-primary, #ff6b6b) 18%, transparent) 0%, transparent 58%),
     linear-gradient(180deg, color-mix(in srgb, var(--dsw-alias-state-error-primary, #ff6b6b) 6%, transparent), transparent 70%),
-    var(--dsw-alias-bg-layer-1, transparent);
+    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, transparent));
 }
 .heroLabel {
   font-size: var(--dsl-g-font-meta);
@@ -389,11 +408,12 @@
   /* Metric card: the number IS the design. No accent stripe, no bar — the
      40px figure against a 12px uppercase label carries the hierarchy. */
   padding: 14px 16px 15px;
-  border: 1px solid var(--dsl-g-border);
+  border: 1px solid var(--dsl-g-border-surface);
   border-radius: var(--dsl-g-radius-surface);
-  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, transparent));
+  background: var(--dsl-g-surface);
   min-width: 0;
   overflow: hidden;
+  box-shadow: var(--dsl-g-shadow-card);
 }
 /* Hero stat: one number is the answer's anchor (use it once per fence). */
 .statHero { padding: 18px 20px 20px; }
@@ -505,7 +525,7 @@
 
 .tableWrap {
   border-radius: var(--dsl-g-radius-control);
-  border: 1px solid var(--dsl-g-border);
+  border: 1px solid var(--dsl-g-border-surface);
   /* A table whose nowrap cells exceed the column width must scroll, not clip
      (mirrors the shell markdown table's .tableScroll pattern). */
   overflow-x: auto;
@@ -760,10 +780,11 @@
   gap: 3px;
   padding: 12px 15px;
   border-radius: var(--dsl-g-radius-surface);
-  border: 1px solid var(--dsl-g-border);
+  border: 1px solid var(--dsl-g-border-surface);
   font-size: var(--dsl-g-font-title);
   line-height: 1.65;
-  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block));
+  background: var(--dsl-g-surface);
+  box-shadow: var(--dsl-g-shadow-card);
 }
 .calloutInfo { background: color-mix(in srgb, var(--dsl-g-accent) var(--dsl-g-tint), transparent); }
 .calloutSuccess { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent); }
@@ -952,6 +973,33 @@
   padding-top: 6px;
   color: var(--dsw-alias-label-secondary);
   font-size: var(--dsl-g-font-meta);
+}
+
+/* Export chips (`table.export`): a quiet toolbar above the table. */
+.tableTools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 8px 4px;
+}
+.tableTool {
+  padding: 2px 9px;
+  border: 1px solid var(--dsl-g-border);
+  border-radius: var(--dsl-g-radius-pill);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: var(--dsl-g-font-meta);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tableTool:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsl-g-border-strong); background: var(--dsl-g-hover); }
+.tableTool:focus-visible { outline: 2px solid var(--dsl-g-accent); outline-offset: 1px; }
+/* Card accent (`card.accent`): the border comes in inline; the title lifts the
+   hue toward the theme's own text colour so it stays legible on dark AND light
+   surfaces (a raw accent colour on a dark card reads muddy). */
+.card[style*="--dsl-card-accent"] > .cardTitle {
+  color: color-mix(in srgb, var(--dsl-card-accent) 38%, var(--dsw-alias-label-primary));
 }
 
 /* Master-detail rows (table.details): a chevron in the first cell opens a
@@ -1291,10 +1339,11 @@
 .accordion {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--dsl-g-border);
+  border: 1px solid var(--dsl-g-border-surface);
   border-radius: var(--dsl-g-radius-surface);
   overflow: hidden;
-  background: var(--dsw-alias-bg-layer-1, transparent);
+  background: var(--dsl-g-surface);
+  box-shadow: var(--dsl-g-shadow-card);
 }
 .accItem { border-bottom: 1px solid var(--dsl-g-border); }
 .accItem:last-child { border-bottom: none; }
@@ -1557,7 +1606,7 @@ button.ftNameBtn[aria-expanded] { cursor: pointer; }
   padding: var(--dsl-g-gap-lg);
   border: 1px solid var(--dsl-g-border);
   border-radius: var(--dsl-g-radius-surface);
-  background: var(--dsw-alias-bg-layer-1, transparent);
+  background: var(--dsl-g-surface);
 }
 .skeletonTitle {
   display: block;

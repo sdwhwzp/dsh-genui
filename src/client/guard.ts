@@ -209,6 +209,18 @@ function repairItems(list: unknown, ctx: RepairCtx, depth: number): GenuiNode[] 
   return out
 }
 
+/** Optional explicit palette: up to 12 validated colour values. */
+function paletteValues(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: string[] = []
+  for (const item of v.slice(0, 12)) {
+    const value = color(item)
+    if (value === undefined) continue
+    out.push(value)
+  }
+  return out.length > 0 ? out : undefined
+}
+
 /** Optional `stat.spark` series: finite numbers only, 2..60 points. */
 function sparkValues(v: unknown): number[] | undefined {
   if (!Array.isArray(v)) return undefined
@@ -258,6 +270,7 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         items: repairItems(v.items, ctx, depth + 1),
         ...opt('title', str(v.title, GENUI_LIMITS.maxString)),
         ...opt('tone', enu(v.tone, CARD_TONES)),
+        ...opt('accent', color(v.accent)),
       }
     }
     case 'button': {
@@ -434,6 +447,7 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         type: 'table', columns, rows,
         ...opt('types', types),
         ...opt('total', v.total === true ? true : undefined),
+        ...opt('export', v.export === true ? true : undefined),
         ...opt('filter', str(v.filter, 64)),
         ...opt('filterColumn', int(v.filterColumn, 0, GENUI_LIMITS.maxTableCols - 1)),
         ...opt('sortField', str(v.sortField, 64)),
@@ -454,6 +468,7 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         ...opt('horizontal', v.horizontal === true ? true : undefined),
         ...opt('stacked', v.stacked === true ? true : undefined),
         ...opt('filter', str(v.filter, 64)),
+        ...opt('palette', paletteValues(v.palette)),
       }
     }
     case 'tabs': {
@@ -627,6 +642,16 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
       const series = v.series !== undefined && Array.isArray(v.series)
         ? repairSeries(v.series, GENUI_LIMITS.maxPlotSeries, GENUI_LIMITS.maxChartPoints)
         : undefined
+      // sankey / graph edges: `from`/`to` must be strings, `value` a number.
+      const links = Array.isArray(v.links)
+        ? v.links.slice(0, GENUI_LIMITS.maxChartPoints).flatMap(entry => {
+          const e = obj(entry)
+          const from = e === undefined ? undefined : str(e.from, 64)
+          const to = e === undefined ? undefined : str(e.to, 64)
+          if (from === undefined || to === undefined) return []
+          return [{ from, to, ...opt('value', num(e!.value, 0, 1e9)) }]
+        })
+        : undefined
       // Full option: depth-bounded pass-through (the model writes the ECharts
       // option object; the guard walks it to cap nesting but does not
       // validate ECharts semantics — that is echarts' own job).
@@ -639,8 +664,9 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         sanitized === undefined || typeof sanitized !== 'object' || sanitized === null || Array.isArray(sanitized)
           ? undefined
           : sanitized as Record<string, unknown>
-      // At least one of preset+data or option must be present.
-      if (option === undefined && data === undefined && series === undefined) return null
+      // At least one of preset+data, links or option must be present.
+      if (option === undefined && data === undefined && series === undefined
+        && (links === undefined || links.length === 0)) return null
       return {
         type: 'echart',
         ...opt('title', str(v.title, GENUI_LIMITS.maxString)),
@@ -648,6 +674,8 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         ...opt('preset', enu(v.preset, ECHART_PRESETS)),
         ...opt('data', data),
         ...opt('series', series),
+        ...opt('links', links !== undefined && links.length > 0 ? links : undefined),
+        ...opt('palette', paletteValues(v.palette)),
         ...opt('option', option),
       }
     }
@@ -1796,8 +1824,12 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
       break
 
     case 'echart':
-      if (v.option === undefined && v.data === undefined && v.series === undefined) {
-        errors.push(`${at}: type 'echart' requires option, data, or series`)
+      // `links` alone is a valid payload: the sankey/graph presets are driven
+      // by edges only. Missing it here rejected the whole fence as
+      // un-renderable (the render gate turns any error into "render nothing").
+      if (v.option === undefined && v.data === undefined && v.series === undefined
+        && (!Array.isArray(v.links) || v.links.length === 0)) {
+        errors.push(`${at}: type 'echart' requires option, data, series, or links`)
       }
       isNum('height')
       break

@@ -96,17 +96,19 @@ The spec is a white-listed component tree rendered inline where the fence sits. 
 
 - 布局: text · row · col · grid · card · divider · spacer · hero（封面块：超大数字 + 标题 + tone 渐变底色，一条回答最多一个）
 - 展示: badge · stat · progress · list · table · keyvalue · avatar · audio · video · timeline · file-tree · breadcrumb · callout · steps · diff · json · code · copy
-- 图表: chart {"kind":"bars|line|donut","data":[{"label":"...","value":n}],"series":[{"label":"...","data":[...]}]?,"horizontal":true?,"stacked":true?}（series：bars 分组/堆叠 / line 多序列；horizontal 横向柱） · echart (preset|option) · plot (函数图)
+- 图表: chart {"kind":"bars|line|donut","data":[{"label":"...","value":n}],"series":[{"label":"...","data":[...]}]?,"horizontal":true?,"stacked":true?}（series：bars 分组/堆叠 / line 多序列；horizontal 横向柱） · echart (preset: bar/line/area/pie/scatter/radar/gauge/funnel/treemap/sankey/graph/heatmap/bigline，或 option 直通) · plot (函数图)
 - 交互: button · input · textarea · select · checkbox · switch · slider · radio · submit · quiz · link · tabs · accordion
 - 高级: mermaid (flowchart/sequence/class/gantt/pie/er/state/journey) · diagram (编辑级架构/流程图，27 种 kind) · scene3d (3D WebGL)
 
 **默认就该出 UI**：出现下列情况至少出一个围栏：
 - ≥3 条并列要点 → \`list\`；数字对比 → \`table\`；指标/进度/状态 → \`stat\`/\`progress\`/\`badge\`
 - 步骤/时间线 → \`steps\`/\`timeline\`/\`mermaid\`；架构/流程 → \`diagram\` 或 \`mermaid\`；风险/结论 → \`callout\`；代码/改动 → \`code\`/\`diff\`/\`json\`
-- 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；排版用 grid 子节点的 \`"span":2\` 跨列做宽窄混排（bento），不要一列方块堆到底；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选，不用再问一遍
+- 版式分档：1–2 句能说完 → 不套 UI；中等回答按内容选组件；长回答优先「hero（仅当有一个能概括全局的数字）→ 宽窄混排 → 明细 → 一句结论」，缺哪块就跳过，不必凑齐。
+- 硬门槛：hero 一条回答最多一个，没有合适数字就不用；连续两条回答不要用同一种主组件；不为凑结构塞组件。
+- 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；配色默认跟随主题，只有语义需要时才用 \`palette\` / \`card.accent\`；排版用 grid 子节点的 \`"span":2\` 跨列做宽窄混排（bento），不要一列方块堆到底；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选，不用再问一遍
 - 正文以组件承载为主：能结构化的段落一律换成组件，文字只做连接与结论，同一份信息不要既写文字又重复出组件。
 
-**字段速查**（完整见 genui skill）：\`stat\` \`{"label":"…","value":"…","delta":"+1.2%"}\` · \`table\` \`{"columns":["…"],"rows":[["…"]],"types":["…"]?,"total":true?,"details":[[…]]?,"filter":"输入框id"?,"sortField":"下拉id"?}\` · \`callout\` \`{"tone":"info|success|warning|error","title":"…","content":"…"}\` · \`progress\` \`{"value":72,"variant":"ring"?,"target":80?}\`
+**字段速查**（完整见 genui skill）：\`stat\` \`{"label":"…","value":"…","delta":"+1.2%"}\` · \`table\` \`{"columns":["…"],"rows":[["…"]],"types":["…"]?,"total":true?,"details":[[…]]?,"filter":"输入框id"?,"sortField":"下拉id"?,"export":true?}\` · \`callout\` \`{"tone":"info|success|warning|error","title":"…","content":"…"}\` · \`progress\` \`{"value":72,"variant":"ring"?,"target":80?}\`
 
 Rules:
 - JSON 严格: 坏围栏降级为代码块；≥3 节点或含 table 的围栏发出前调用 validate_dsh_ui，❌ 修好再发（若附「已自动修复」JSON 照抄即可）。
