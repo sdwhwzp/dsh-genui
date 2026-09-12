@@ -32,6 +32,9 @@ export const MAX_PARTIAL_REPAIR_ATTEMPTS = 32
 
 let repairAttemptsLimit = MAX_PARTIAL_REPAIR_ATTEMPTS
 
+/** How many early-closed roots one body may carry before the repair gives up. */
+export const MAX_REATTACH_PASSES = 8
+
 /** Override the repair-candidate budget (tests / tuning). */
 export function setMaxPartialRepairAttempts(n: number): void {
   repairAttemptsLimit = n
@@ -130,6 +133,65 @@ function trySpec(candidate: string, allowSingleComponentRoot: boolean): GenuiSpe
 }
 
 /**
+ * Reattach components the model stranded outside an early-closed root.
+ *
+ * Observed in the wild: the model closes `items` and the root object, then
+ * keeps appending components as if still inside the array —
+ * `{"title":…,"items":[A,B]},{"type":"table",…}]}`. The body is not
+ * incomplete, so tier-2 completion does not apply; and the forward scan stops
+ * at the first unbalanced close, so the longest candidate stays the
+ * already-closed prefix. The card therefore freezes on A and B for the rest
+ * of the message and only fills in once the message settles.
+ *
+ * The repair is deterministic string surgery, safe while streaming: it fires
+ * only when a COMPLETE root object is followed by `,`, and it reopens that
+ * root's `items` array so the stranded text continues it. Whatever follows is
+ * still handed to the normal candidate scan, so a half-written trailing
+ * component is dropped exactly as before.
+ * @param text - the trimmed fence body.
+ * @returns the reopened body, or null when this damage is not present.
+ */
+export function reattachStrandedItems(text: string): string | null {
+  // The damage repeats: a model that closed the root once usually closes it
+  // again after each further component (observed 2x in the capture below), so
+  // one pass leaves the next component stranded. Bounded like every other scan
+  // in this module — a pathological body cannot spin here.
+  let current = text
+  for (let pass = 0; pass < MAX_REATTACH_PASSES; pass += 1) {
+    const next = reattachOnce(current)
+    if (next === null) return current === text ? null : current
+    current = next
+  }
+  return current === text ? null : current
+}
+
+/** One reattach pass; null when this body carries no early-closed root. */
+function reattachOnce(text: string): string | null {
+  const { candidates } = collectPartialCandidates(text)
+  // The root close is the LAST balanced prefix the scan reached; candidates
+  // come longest-first, so the first one that parses as a whole object wins.
+  for (const candidate of candidates) {
+    if (candidate.closingSuffix !== '') continue
+    const head = text.slice(0, candidate.end)
+    const rest = text.slice(candidate.end)
+    if (!rest.trimStart().startsWith(',')) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(head)
+    } catch {
+      continue
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    if (!Array.isArray((parsed as { items?: unknown }).items)) continue
+    // Reopen `…]}` into `…` so `rest` continues the items array.
+    const reopened = head.replace(/\]\s*\}\s*$/, '')
+    if (reopened === head) continue
+    return reopened + rest
+  }
+  return null
+}
+
+/**
  * Parse a possibly incomplete genui spec body.
  * @param raw - the fence body as accumulated so far.
  * @returns a spec containing only finished components, or null when nothing
@@ -143,7 +205,22 @@ export function parsePartialGenuiSpec(raw: string): GenuiSpec | null {
   const full = trySpec(text, true)
   if (full !== null) return full
 
-  // 2. Bounded repair: ONE forward scan, at most `repairAttemptsLimit`
+  // 2. Early-closed root: the model shut `items`/the root and kept appending
+  //    components. This must be tried BEFORE the plain candidate scan — that
+  //    scan happily returns the already-closed prefix, which is exactly the
+  //    frozen card this repair exists to unfreeze.
+  const reattached = reattachStrandedItems(text)
+  if (reattached !== null) {
+    const whole = trySpec(reattached, true)
+    if (whole !== null) return whole
+    const retry = collectPartialCandidates(reattached)
+    for (const candidate of retry.candidates) {
+      const spec = trySpec(reattached.slice(0, candidate.end) + candidate.closingSuffix, false)
+      if (spec !== null) return spec
+    }
+  }
+
+  // 3. Bounded repair: ONE forward scan, at most `repairAttemptsLimit`
   //    candidates, longest first — never a re-scan per `}`.
   const { candidates } = collectPartialCandidates(text)
   for (const candidate of candidates) {
@@ -151,6 +228,6 @@ export function parsePartialGenuiSpec(raw: string): GenuiSpec | null {
     if (spec !== null) return spec
   }
 
-  // 3. Not even one complete element yet (e.g. `{"items":[{"type":"tex`).
+  // 4. Not even one complete element yet (e.g. `{"items":[{"type":"tex`).
   return null
 }
