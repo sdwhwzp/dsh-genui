@@ -225,18 +225,30 @@ export function createRenderUiTool(): ToolDefinition {
 }
 
 /**
- * The `validate_dsh_ui` tool: a model-facing pre-flight check for the
- * ```dsh-ui fence channel. The model calls it with the JSON text it is about
- * to put inside a fence; it reports whether the body parses as a valid GenUI
- * spec, and when it does not, WHERE it breaks and WHAT is likely wrong
- * (bracket counts, common typo classes) so the model can fix and re-validate
- * before emitting — turning "render a red banner after the fact" into
- * "verify before you send". Purely local: no LLM, no network, no DOM.
+ * The `validate_dsh_ui` tool: a repair channel for the ```dsh-ui fence.
+ *
+ * It reports whether a fence body parses as a valid GenUI spec and, when it
+ * does not, WHERE it breaks and WHAT is likely wrong (bracket counts, common
+ * typo classes), returning the auto-repaired JSON whenever the body is
+ * repairable. Purely local: no LLM, no network, no DOM.
+ *
+ * It is deliberately NOT a pre-flight the model runs before every fence.
+ * `resolveGenuiSpec` already repairs the emitted fence client-side (tier-1
+ * quote/comma healing on every render, tier-2 completion once the message
+ * settles) and an unrecoverable body degrades to a code block, so validating
+ * first buys nothing for a well-formed spec — while costing a full extra
+ * model round trip that writes the same JSON twice. Measured on a 730-char
+ * itinerary card: 18.4s to compose the spec into a validate call, 3.3s of
+ * step overhead, then 18.4s to emit the byte-identical spec again — 22s of
+ * that produced nothing the reader could see, which reads as a frozen page.
+ * The model therefore reaches for this tool when a fence actually failed, or
+ * when it is about to hand-write an unusually large body.
  */
 const VALIDATE_DESCRIPTION =
-  'Validate the JSON body of a ```dsh-ui fence BEFORE emitting it — use for non-trivial specs (≥3 nodes or containing a table); skip for trivial ones (≤2 nodes). '
-  + 'Pass the exact JSON text you are about to put inside the fence as the "spec" argument (a string). '
-  + 'Returns ✅ when it parses as a valid GenUI spec, or ❌ with the exact position, bracket counts, and likely causes when it does not — fix the JSON, re-validate, and only then emit the fence. '
+  'Repair the JSON body of a ```dsh-ui fence. Do NOT call this before emitting a fence you believe is well-formed: the renderer already heals quote/comma/bracket damage, and validating first makes you write the same JSON twice, which doubles the wait before anything appears on screen. '
+  + 'Call it only when a fence you already emitted failed to render, or when you are about to hand-write an unusually large body (roughly 100+ lines) and want the brackets checked once. '
+  + 'Pass the exact JSON text as the "spec" argument (a string). '
+  + 'Returns ✅ when it parses as a valid GenUI spec, or ❌ with the exact position, bracket counts, and likely causes when it does not. '
   + 'When the JSON is broken but repairable (unescaped quotes, trailing commas, missing closers), the ❌ reply INCLUDES the auto-repaired JSON — copy it verbatim into the fence instead of rewriting by hand.'
 
 const VALIDATE_PARAMETERS: Record<string, unknown> = {

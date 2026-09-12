@@ -193,6 +193,14 @@ describe('render_ui projections', () => {
 describe('validate_dsh_ui tool', () => {
   const vtool = createValidateDshUiTool()
 
+  it('describes itself as a repair channel, not a pre-flight for every fence', () => {
+    // 说明文案是模型唯一的调用依据：只要它还写着「发出前校验」，模型就会在每张
+    // 卡片上多付一次完整往返，把同一份 JSON 写两遍。
+    expect(vtool.description).not.toContain('BEFORE emitting')
+    expect(vtool.description).toMatch(/Do NOT call this before emitting/)
+    expect(vtool.description).toMatch(/failed to render/)
+  })
+
   it('registers under the validate_dsh_ui name with a spec argument', () => {
     expect(vtool.name).toBe('validate_dsh_ui')
     expect(vtool.description).toContain('dsh-ui fence')

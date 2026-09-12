@@ -44,6 +44,20 @@ describe('genui:fence section', () => {
     expect(text).toContain('series：bars 分组/堆叠 / line 多序列')
   })
 
+  it('tells the model to emit the fence directly instead of pre-validating it', async () => {
+    // 预校验会让同一份 JSON 生成两遍：模型先把 spec 写进 validate_dsh_ui 调用，
+    // 再原样写进可见围栏。线上实测一张 730 字符的行程卡——18.4s 组装校验调用、
+    // 3.3s 换步、18.4s 重写同一份 spec；其中 22s 屏幕上什么都没有，读者看到的
+    // 就是页面卡住。渲染器本来就会自动修复围栏，所以正常路径不该付这次往返。
+    const assembly = await assemble()
+    const section = assembly.sections.find(s => s.name === 'genui:fence')
+    const text = typeof section!.text === 'string' ? section!.text : ''
+    expect(text).toContain('不要先调 validate_dsh_ui')
+    expect(text).not.toContain('发出前调用 validate_dsh_ui')
+    // 工具本身仍要留着：围栏真的渲染失败时模型得有地方拿到自动修复后的 JSON。
+    expect(text).toContain('validate_dsh_ui')
+  })
+
   it('keeps the full type whitelist in the slim section within the token budget', async () => {
     // Issue #29: GENUI_SECTION_TEXT is a fixed per-request cost, so the slim
     // section must stay compact while still listing every allowed type.

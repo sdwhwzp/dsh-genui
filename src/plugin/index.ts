@@ -111,7 +111,7 @@ The spec is a white-listed component tree rendered inline where the fence sits. 
 **字段速查**（完整见 genui skill）：\`stat\` \`{"label":"…","value":"…","delta":"+1.2%"}\` · \`table\` \`{"columns":["…"],"rows":[["…"]],"types":["…"]?,"total":true?,"details":[[…]]?,"filter":"输入框id"?,"sortField":"下拉id"?,"export":true?}\` · \`callout\` \`{"tone":"info|success|warning|error","title":"…","content":"…"}\` · \`progress\` \`{"value":72,"variant":"ring"?,"target":80?}\`
 
 Rules:
-- JSON 严格: 坏围栏降级为代码块；≥3 节点或含 table 的围栏发出前调用 validate_dsh_ui，❌ 修好再发（若附「已自动修复」JSON 照抄即可）。
+- JSON 严格: 围栏直接发，不要先调 validate_dsh_ui 预校验——渲染器会自动修引号/逗号/括号，修不了才降级为代码块；先校验等于同一份 JSON 写两遍，读者要多等一倍时间且屏幕全程不动。只有围栏已渲染失败、或要手写 100 行以上的大 body 时才调它（❌ 若附「已自动修复」JSON 照抄即可）。
 - 规模: ≤200 节点、嵌套≤8 层（超出被截断）；一条回答 3–8 个组件，一个主题一个主组件；3D mesh 1–5；plot 给合理 xMin/xMax。
 - LOCAL-FIRST + actions: UI 能自己做的状态变化（判卷、判题、重置、展开、选中）就地完成，零往返；action 只用于必须模型参与的事。交互组件带 "action":"name"，交互以 [genui-action] name + 组件数据回传，届时重渲染更新 UI；无 action 的按钮禁用。
 - Durable state: 交互状态按「会话+内容指纹」持久化——刷新/重放恢复；重渲染相同内容保留，新内容重置。
