@@ -183,6 +183,8 @@ dsh plugin --profile web add link:$PWD
 
 组件 JSON 语法见 [SKILL.md](./SKILL.md)。宿主提供公开 skill registry 时，插件会自动注册内置 `genui` skill，因此新会话无需向 `~/.dsh` 复制文件即可获得完整组件与字段目录。
 
+正常 `dsh-ui` 围栏直接生成，包括表格和多个组件；渲染器会自动修复可恢复的 JSON 错误。`validate_dsh_ui` 用于已渲染失败的围栏，或确有必要检查的 100 行以上手写 body。常规输出无需先把同一份 JSON 写进校验调用再重复生成到正文。
+
 `chart` 保持三种图形的紧凑渲染器：使用 `kind: 'bars' | 'line' | 'donut'`，且 `data[].value` 必须是有限数字。`validate_dsh_ui` 会明确报告误用的 `variant`、不支持的 kind 和非法数据字段；`render_ui` 对同样错误直接失败，不再静默渲染默认柱图。未知扩展字段仍允许存在。
 
 ## 📄 示例

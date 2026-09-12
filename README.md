@@ -177,6 +177,8 @@ The following is the detailed capability reference. Every behavior is constraine
 
 Component JSON syntax lives in [SKILL.md](./SKILL.md). On hosts with the public skill registry, the plugin registers this bundled `genui` skill automatically, so new Sessions receive the complete component and field catalog without copying files into `~/.dsh`.
 
+Emit ordinary `dsh-ui` fences directly, including tables and multiple components; the renderer repairs recoverable JSON errors automatically. Use `validate_dsh_ui` for a fence that failed to render, or a hand-written body of roughly 100+ lines that needs a bracket check. Ordinary output does not require writing the same JSON into a validation call before generating it again in the reply.
+
 `chart` stays the compact three-kind renderer: use `kind: 'bars' | 'line' | 'donut'` with finite numeric `data[].value` fields. `validate_dsh_ui` reports `variant`, unsupported kinds, and invalid datum fields explicitly; `render_ui` rejects the same errors instead of silently rendering the default bars view. Unknown extension fields remain allowed.
 
 ## 📄 Example

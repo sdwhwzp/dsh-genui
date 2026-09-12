@@ -189,6 +189,26 @@ describe('genui:fence section', () => {
     expect((await ctx.skills.list()).find(skill => skill.name === 'genui')).toBeUndefined()
   })
 
+  it('loads bundled guidance that reserves validation for failed fences or unusually large bodies', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(SkillRegistry)
+    const genui = await ctx.plugin(GenUI)
+
+    try {
+      const skill = await ctx.skills.get('genui')
+      expect(skill?.source).toBe('bundled')
+      expect(skill?.content).toContain('不要先调 validate_dsh_ui')
+      expect(skill?.content).toContain('已渲染失败')
+      expect(skill?.content).toContain('100 行以上')
+      expect(skill?.content).not.toContain('先验后发')
+      expect(skill?.content).not.toContain('spec ≥3 个组件或含 `table`')
+      expect(skill?.content).not.toContain('缺括号/错括号等结构错误一律不修')
+    } finally {
+      await genui.dispose()
+    }
+  })
+
   it('registers genui when the real skill service binds after the plugin', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
