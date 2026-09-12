@@ -61,3 +61,24 @@ describe('early-closed root', () => {
     expect(reattachStrandedItems('{"title":"t","items":[{"type":"text","text":"a"}]} trailing')).toBeNull()
   })
 })
+
+/**
+ * A second production capture (2026-09-13 04:30), different break offset and a
+ * different first component: the damage is recurrent model behaviour, not a
+ * one-off, so the repair is pinned against more than one shape.
+ */
+const BODY2 = readFileSync(
+  join(process.cwd(), 'tests/fixtures/early-closed-root-2.fence.json'),
+  'utf8',
+)
+
+describe('early-closed root (second capture)', () => {
+  it('carries the same damage at a different offset', () => {
+    expect(() => JSON.parse(BODY2)).toThrow()
+    expect(() => JSON.parse(BODY2.slice(0, 662))).not.toThrow()
+  })
+
+  it('recovers the stranded callout that used to never arrive', () => {
+    expect(typesOf(BODY2)).toEqual(['table', 'callout'])
+  })
+})
