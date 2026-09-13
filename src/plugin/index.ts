@@ -103,12 +103,13 @@ The spec is a white-listed component tree rendered inline where the fence sits. 
 **默认就该出 UI**：出现下列情况至少出一个围栏：
 - ≥3 条并列要点 → \`list\`；数字对比 → \`table\`；指标/进度/状态 → \`stat\`/\`progress\`/\`badge\`
 - 步骤/时间线 → \`steps\`/\`timeline\`/\`mermaid\`；架构/流程 → \`diagram\` 或 \`mermaid\`；风险/结论 → \`callout\`；代码/改动 → \`code\`/\`diff\`/\`json\`
-- 版式分档：1–2 句能说完 → 不套 UI；中等回答按内容选组件；长回答优先「hero（仅当有一个能概括全局的数字）→ 宽窄混排 → 明细 → 一句结论」，缺哪块就跳过，不必凑齐。
-- 硬门槛：hero 一条回答最多一个，没有合适数字就不用；连续两条回答不要用同一种主组件；不为凑结构塞组件。
-- 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；配色默认跟随主题，只有语义需要时才用 \`palette\` / \`card.accent\`；排版用 grid 子节点的 \`"span":2\` 跨列做宽窄混排（bento），不要一列方块堆到底；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选，不用再问一遍
-- 正文以组件承载为主：能结构化的段落一律换成组件，文字只做连接与结论，同一份信息不要既写文字又重复出组件。
+- 行内富文本：\`text\`/\`list\`/表格文本列/\`keyvalue\`/\`callout\` 里可写 \`code\`、**加粗**、==高亮==、[文字](url)：重点留在句中，不必为一个词单起组件。
+- 默认无卡 ≠ 少用组件：硬触发照常出组件，**组件多不是问题**——判据是每个组件承载不同信息、有焦点与层次、同一批数据不重复表达。卡片只用于并排项与数据对象；单段文字用「标题 + 正文 + 间距」。
 
-**字段速查**（完整见 genui skill）：\`stat\` \`{"label":"…","value":"…","delta":"+1.2%"}\` · \`table\` \`{"columns":["…"],"rows":[["…"]],"types":["…"]?,"total":true?,"details":[[…]]?,"filter":"输入框id"?,"sortField":"下拉id"?,"export":true?}\` · \`callout\` \`{"tone":"info|success|warning|error","title":"…","content":"…"}\` · \`progress\` \`{"value":72,"variant":"ring"?,"target":80?}\`
+**发回答前最后自检一次**：这段内容里有没有 ≥3 条并列要点、任何对比、任何数字/指标、任何步骤或流程？有就先转成组件再开口。**状态汇报、进度说明、提交与改动清单同样算**——不要因为它是"说明文"就用纯文字写。这一条踩过的坑：连续几条汇报全靠文字，一条围栏都没发。
+- 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；配色默认跟随主题，只有语义需要时才用 \`palette\` / \`card.accent\`；排版用 grid 子节点的 \`"span":2\` 跨列做宽窄混排（bento），不要一列方块堆到底；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选，不用再问一遍
+
+**字段速查**（完整见 genui skill）：\`stat\` \`{"label","value","delta"?}\` · \`table\` \`{"columns","rows","types"?,"total"?,"details"?,"filter"?,"export"?}\` · \`callout\` \`{"tone","title","content"}\` · \`progress\` \`{"value","variant"?,"target"?}\`
 
 Rules:
 - JSON 严格: 围栏直接发，不要先调 validate_dsh_ui 预校验——渲染器会自动修引号/逗号/括号，修不了才降级为代码块；先校验等于同一份 JSON 写两遍，读者要多等一倍时间且屏幕全程不动。只有围栏已渲染失败、或要手写 100 行以上的大 body 时才调它（❌ 若附「已自动修复」JSON 照抄即可）。

@@ -85,6 +85,81 @@ function assertFileTreeLayout(container: HTMLElement): void {
   expect(container.textContent).toContain('README.md')
 }
 
+describe('host isolation contract', () => {
+  // The plugin must never restyle the host: styles are confined to the fence
+  // subtree. A bare element selector (`pre {}`, `button {}`) or a `:global`
+  // block would reach the host's own UI.
+  for (const file of ['GenuiBlock.module.css', 'PlotBlock.module.css']) {
+    it(`${file} stays scoped to its own classes`, () => {
+      const raw = readFileSync(join(process.cwd(), 'src/client', file), 'utf8')
+      expect(raw).not.toContain(':global')
+      // Keyframe stops (`0%`, `from`, `to`) are not selectors.
+      const src = raw.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^}]*\}\s*)*\}/g, '')
+      const offenders: string[] = []
+      for (const match of src.matchAll(/(?:^|\n)([^\n{}/][^\n{]*?)\{/g)) {
+        const selector = (match[1] ?? '').trim()
+        if (selector === '' || selector.startsWith('@') || selector.startsWith('/*')) continue
+        for (const part of selector.split(',').map(p => p.trim())) {
+          if (part === '') continue
+          // Scoping rule: every selector must be ANCHORED by one of our module
+          // classes somewhere. `.table th`, `.card > :last-child` and
+          // `body[data-ds-dark-theme] .panel` are all contained; a bare
+          // `pre { }` or `body { }` would reach the host.
+          if (!/\./.test(part)) {
+            offenders.push(selector.slice(0, 60))
+            break
+          }
+        }
+      }
+      expect(offenders).toEqual([])
+    })
+  }
+})
+
+describe('component design contract (measured defects)', () => {
+  const css = () => readFileSync(join(process.cwd(), 'src/client/GenuiBlock.module.css'), 'utf8')
+
+  it('keeps every control and marker visible in light mode', () => {
+    const c = css()
+    // Measured: the pending step marker had a 4%-black border and a page-coloured
+    // fill (invisible ring); inputs sat on the page colour with the same 4% border.
+    const step = /\.stepMarker \{([^}]*)\}/.exec(c)!
+    expect(step[1]).toMatch(/background: var\(--dsl-g-surface\)/)
+    expect(step[1]).toMatch(/border: 1px solid var\(--dsl-g-border-surface\)/)
+    for (const rule of ['\.input, \.select', '\.textarea']) {
+      const block = new RegExp(`${rule} \\{([^}]*)\\}`).exec(c)!
+      expect(block[1]).toMatch(/background: var\(--dsl-g-surface\)/)
+      expect(block[1]).toMatch(/border: 1px solid var\(--dsl-g-border-surface\)/)
+    }
+  })
+
+  it('reserves the media box before the bytes arrive', () => {
+    // Measured 213x0: an unloaded <img> collapsed and the card looked broken.
+    expect(css()).toMatch(/img\.mediaPlayer \{[^}]*aspect-ratio: 16 \/ 9/)
+    expect(css()).toMatch(/img\.mediaPlayer \{[^}]*object-fit: cover/)
+  })
+
+  it('gives quiz options a selection affordance from the start', () => {
+    // Measured 16x0 (empty inline span): the options read as plain grey bars.
+    const marker = /\.quizMarker \{([^}]*)\}/.exec(css())!
+    expect(marker[1]).toMatch(/display: inline-block/)
+    expect(marker[1]).toMatch(/width: 14px/)
+  })
+
+  it('resets box-sizing inside the block (select vs input grew 26px apart)', () => {
+    expect(css()).toMatch(/\.block \*, \.block \*::before, \.block \*::after,[\s\S]{0,120}?box-sizing: border-box/)
+  })
+
+  it('themes mermaid from host tokens, not a stock palette', () => {
+    const core = readFileSync(join(process.cwd(), 'src/client/mermaid-core.ts'), 'utf8')
+    // Stock themes drew grey boxes with sharp corners next to rounded host UI.
+    expect(core).toMatch(/theme: 'base'/)
+    expect(core).toMatch(/themeVariables: \{/)
+    expect(core).toMatch(/--dsw-alias-bg-layer-2/)
+    expect(core).toMatch(/rx: 8px; ry: 8px/)
+  })
+})
+
 describe('surface elevation contract', () => {
   it('puts cards on the elevated host layer, not the page layer', () => {
     const css = readFileSync(join(process.cwd(), 'src/client/GenuiBlock.module.css'), 'utf8')
@@ -105,7 +180,7 @@ describe('surface elevation contract', () => {
     // a card there would be invisible without border-l2 + a shadow.
     expect(css).toMatch(/--dsl-g-shadow-card:/)
     expect(css).toMatch(/--dsl-g-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 10%/)
-    expect(css).toMatch(/--dsl-g-border-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 24%/)
+    expect(css).toMatch(/--dsl-g-border-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 12%/)
     for (const rule of ['card', 'stat', 'callout', 'hero', 'accordion']) {
       const block = new RegExp(`\\.${rule} \\{([^}]*)\\}`).exec(css)
       expect(block, `.${rule} must exist`).not.toBeNull()
@@ -115,6 +190,42 @@ describe('surface elevation contract', () => {
       expect(block![1], `.${rule} needs a visible outline`).toMatch(/border: 1px solid var\(--dsl-g-border-surface\)/)
       expect(block![1], `.${rule} needs a lift`).toMatch(/box-shadow: var\(--dsl-g-shadow-card\)/)
     }
+  })
+})
+
+describe('design-standard contract (research-driven)', () => {
+  const css = () => readFileSync(join(process.cwd(), 'src/client/GenuiBlock.module.css'), 'utf8')
+
+  it('separates adjacent surfaces by the documented minimum', () => {
+    // design-reference.md: light surfaces need a >=4% lightness step OR a
+    // shadow of at least `0 1px 3px rgba(0,0,0,0.10)`. Our light step is a 10%
+    // label tint (255 -> ~231 = 9.4%) and the shadow carries the documented
+    // first layer.
+    expect(css()).toMatch(/--dsl-g-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 10%/)
+    expect(css()).toMatch(/--dsl-g-shadow-card: 0 1px 3px rgba\(0, 0, 0, 0\.10\)/)
+  })
+
+  it('keeps dark elevation as a small overlay, not a light-mode tint', () => {
+    // Dark communicates elevation with the layer step plus a ~4% overlay;
+    // drop shadows are nearly invisible on dark surfaces.
+    const dark = /body\[data-ds-dark-theme\] \.block,[\s\S]{0,200}?--dsl-g-surface: color-mix\(in srgb, var\(--dsw-alias-label-primary\) 4%/.exec(css())
+    expect(dark, 'dark override must use a 4% overlay').not.toBeNull()
+  })
+
+  it('makes a card title a heading, not a 12.5px uppercase label', () => {
+    // The defect: the card title was SMALLER than the card body (12.5 vs
+    // 14.5px) and uppercase, so every card read as a grey label block.
+    const title = /\.cardTitle \{([^}]*)\}/.exec(css())
+    expect(title).not.toBeNull()
+    expect(title![1]).toMatch(/font-size: var\(--dsl-g-font-h3\)/)
+    expect(title![1]).not.toMatch(/text-transform: uppercase/)
+    expect(title![1]).toMatch(/text-transform: none/)
+  })
+
+  it('reserves uppercase tracking for eyebrows only', () => {
+    const c = css()
+    expect(c).toMatch(/\.heroLabel \{[^}]*text-transform: uppercase/)
+    expect(c).toMatch(/\.heroLabel \{[^}]*letter-spacing: 0\.1em/)
   })
 })
 
