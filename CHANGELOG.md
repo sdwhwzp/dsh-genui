@@ -52,6 +52,9 @@
 
 ### 修复
 - **/panel 候选按 query 前缀过滤（issue #98）**：`createPanelSlashSource` 的 `candidates` 此前无视 `req.query` 恒返回 `panel` 一项——输入与指令/技能都不匹配的 query 时，genui 组成了菜单里唯一 ready 非空的分组，宿主 `menuReduce` 的 `firstHighlight` 落到 `panel` 且后续不让位，默认高亮被抢占；此时按 Enter 走 `pick-highlighted` 会误执行 `/panel` 而非目标命令/技能。现在 query 非空且不是 `panel` 前缀（大小写不敏感）时返回空数组，该分组从菜单消失。`matchEnter` 行为不变（裸 `/panel` 回车照常认领）。
+## [0.9.7] - 2026-09-01
+### 兼容性
+- **dsh 0.1.2-alpha.3**：移除已下线的 `dsh-client-runtime`，会话 Context 改由 `dsh-api-session-controller/client` 声明，`SessionId` 与工具卡类型分别从当前公开类型入口导入；全部官方 peer 对齐 Alpha.3。
 
 ## [0.9.6] - 2026-08-28
 ### 兼容性
