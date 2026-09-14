@@ -89,6 +89,19 @@ function processSemanticFailure(raw: string): string | null {
  *    rendered. Once the streaming marker is gone, surface a compact diagnostic
  *    so the defect is visible instead of silent.
  */
+/**
+ * Describe a settled fence failure for either rendering channel.
+ * @param raw - Original fence JSON.
+ * @returns A diagnostic, or null when no failure is identified.
+ */
+export function describeGenuiFenceFailure(raw: string): string | null {
+  const semantic = processSemanticFailure(raw)
+  if (semantic !== null) return semantic
+  if (raw.trim() === '') return 'JSON 内容为空'
+  const parse = describeJsonFailure(raw)
+  return parse === null ? null : `JSON 解析失败${parse}`
+}
+
 function FenceFallback({ raw, fenceKey }: { raw: string; fenceKey: Key }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const [settled, setSettled] = useState(false)

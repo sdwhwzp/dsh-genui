@@ -42,6 +42,10 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
   // Custom nodes are opaque by contract: don't inspect or rewrite their data.
   if (definition === undefined) return value
   const out = normalizeAliasFields(value, path, type, warnings, definition.aliases)
+  if (type === 'hero' && out.tone === 'brand') {
+    out.tone = 'accent'
+    warnings.push({ kind: 'alias', path: `${path}.tone`, message: `${path}.tone value 'brand' normalized as 'accent'`, type, field: 'tone', canonical: 'accent' })
+  }
   const normalizeNodeValue = (child: unknown, childPath: string): unknown => normalizeNode(child, childPath, warnings)
   const normalizeNodeArray = (children: unknown, childPath: string): unknown => Array.isArray(children)
     ? children.map((child, index) => normalizeNodeValue(child, `${childPath}[${index}]`))

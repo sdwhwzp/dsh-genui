@@ -334,6 +334,39 @@ describe('installDomFenceRenderer', () => {
     }
   })
 
+  it('renders a saved brand hero without requiring a new model reply', async () => {
+    const row = assistantRow('brand-hero')
+    const block = stockCodeBlock(JSON.stringify({ title: '假期结构', items: [{ type: 'hero', value: '13', title: '天连休，只需请假 3 天', tone: 'brand' }] }), 'dsh-ui')
+    row.appendChild(block); document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-1', send), send)
+    try {
+      expect(await waitFor(() => row.querySelector('.genui-dom-fence')?.textContent?.includes('天连休') === true)).toBe(true)
+      expect(block.style.display).toBe('none')
+      expect(row.querySelector('[role="alert"]')).toBeNull()
+    } finally { dispose() }
+    expect(block.style.display).toBe('')
+  })
+
+  it('shows semantic failures beside source and removes the diagnostic after repair or disposal', async () => {
+    const row = assistantRow('invalid-tone')
+    const block = stockCodeBlock('{"items":[{"type":"hero","title":"行程","tone":"unrecognized"}]}', 'dsh-ui')
+    row.appendChild(block); document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-1', send), send)
+    try {
+      expect(await waitFor(() => row.querySelector('[role="alert"]') !== null)).toBe(true)
+      expect(row.querySelector('[role="alert"]')!.textContent).toContain('items[0].tone')
+      expect(block.style.display).toBe('')
+      block.querySelector('code')!.textContent = VALID_SPEC
+      expect(await waitFor(() => block.style.display === 'none' && row.querySelector('[role="alert"]') === null)).toBe(true)
+      block.querySelector('code')!.textContent = BROKEN_SPEC
+      expect(await waitFor(() => row.querySelector('[role="alert"]') !== null)).toBe(true)
+    } finally { dispose() }
+    expect(row.querySelector('[role="alert"]')).toBeNull()
+    expect(block.style.display).toBe('')
+  })
+
   it('relays component actions through the injected sender', async () => {
     const row = assistantRow('s11')
     const block = stockCodeBlock(BUTTON_SPEC, 'dsh-ui')

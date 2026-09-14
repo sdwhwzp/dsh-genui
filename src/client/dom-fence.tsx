@@ -51,7 +51,7 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
 import css from './GenuiBlock.module.css'
-import { renderResolvedFenceNode, type GenuiFenceContext } from './fence-render.tsx'
+import { describeGenuiFenceFailure, renderResolvedFenceNode, type GenuiFenceContext } from './fence-render.tsx'
 
 /** Fence surfaces the channel can take over, newest host first: the shared
  * CodeBlock surface every rc.6+ markdown fence renders through
@@ -386,6 +386,25 @@ export function installDomFenceRenderer(
   driftWarned = false
   plausibilityWarned = false
   const mounts = new Map<HTMLElement, Mount>()
+  const diagnostics = new Map<HTMLElement, HTMLElement>()
+  function clearDiagnostic(block: HTMLElement): void {
+    diagnostics.get(block)?.remove()
+    diagnostics.delete(block)
+  }
+  function showDiagnostic(block: HTMLElement, raw: string): void {
+    const message = describeGenuiFenceFailure(raw) ?? '规格无法渲染'
+    let notice = diagnostics.get(block)
+    if (notice === undefined) {
+      notice = document.createElement('div')
+      notice.className = 'genui-fence-diagnostic'
+      notice.setAttribute('role', 'alert')
+      notice.style.cssText = 'margin:0 0 6px;padding:6px 10px;border:1px solid #ef4444;border-radius:6px;white-space:pre-wrap'
+      diagnostics.set(block, notice)
+    }
+    const text = `⚠️ dsh-ui ${message}。原始内容保留在下方；可调用 validate_dsh_ui 修正。`
+    if (notice.textContent !== text) notice.textContent = text
+    if (notice.nextElementSibling !== block) block.before(notice)
+  }
   let disposed = false
   let rafId: number | null = null
 
@@ -448,9 +467,10 @@ export function installDomFenceRenderer(
     // streaming the fence is identified by CONTENT — a partial parse that
     // yields a GenUI node. A misidentified fence (e.g. a ```json block that
     // happens to parse) is reverted at the settle transition below.
-    if (settled && infostringOf(block) === null) return
+    if (settled && infostringOf(block) === null) { clearDiagnostic(block); return }
     const raw = rawOf(block)
     if (raw.trim() === '') {
+      if (settled) showDiagnostic(block, raw)
       if (settled) warnOnce(block, 'settled dsh-ui fence has an empty body; keeping the code block')
       return
     }
@@ -458,18 +478,18 @@ export function installDomFenceRenderer(
     const node: ReactNode | null = renderResolvedFenceNode(raw, key, context)
     // Null = no finished component yet (streaming half) or unrepairable:
     // the stock code block stays visible until something renders. A settled
-    // unrepairable body warns once (the DOM channel has no visible
-    // diagnostic of its own — the stock block keeps the raw content).
+    // unrepairable body shows a diagnostic above the unchanged stock block.
     let payload = node
     if (payload === null) {
       if (settled || !looksLikeGenuiInProgress(raw)) {
-        if (settled) warnOnce(block, 'settled dsh-ui fence body does not parse; keeping the code block')
+        if (settled) { showDiagnostic(block, raw); warnOnce(block, 'settled dsh-ui fence body does not parse or validate; keeping the code block') }
         return
       }
       // Streaming, spec-shaped, nothing renderable yet: show the skeleton
       // rather than a wall of half-written JSON.
       payload = <GenuiSkeleton />
     }
+    clearDiagnostic(block)
     // Mount FIRST, hide AFTER (issue #19): the stock block is only ever
     // hidden once a successfully mounted replacement stands next to it. A
     // mount failure leaves the original code block untouched — the final
@@ -554,6 +574,9 @@ export function installDomFenceRenderer(
    * new dsh-ui block — settled or still streaming. */
   function sweep(): void {
     if (disposed) return
+    for (const block of diagnostics.keys()) {
+      if (!block.isConnected || !isSettled(block)) clearDiagnostic(block)
+    }
     for (const [block, mount] of mounts) {
       if (!block.isConnected) {
         unmountBlock(block)
@@ -699,5 +722,6 @@ export function installDomFenceRenderer(
       rafId = null
     }
     for (const block of Array.from(mounts.keys())) unmountBlock(block)
+    for (const block of Array.from(diagnostics.keys())) clearDiagnostic(block)
   }
 }

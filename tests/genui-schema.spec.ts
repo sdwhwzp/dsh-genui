@@ -6,6 +6,17 @@ import { diagnoseUnknownGenuiFields } from '../src/client/genui-runtime/diagnost
 import { validateRenderableChartSemantics } from '../src/plugin/chart-contract.ts'
 
 describe('GenUI runtime schema normalization', () => {
+  it('normalizes the saved hero brand tone without accepting unrelated invalid tones', () => {
+    const original = { items: [{ type: 'hero', title: 'Holiday', tone: 'brand' }] }
+    const result = normalizeGenuiSpec(original)
+    expect(result.value).toEqual({ items: [{ type: 'hero', title: 'Holiday', tone: 'accent' }] })
+    expect(original.items[0]!.tone).toBe('brand')
+    expect(result.warnings[0]?.path).toBe('items[0].tone')
+    expect(normalizeGenuiSpec(result.value).warnings).toEqual([])
+    expect(processGenuiSpec(original).errors).toEqual([])
+    expect(processGenuiSpec({ items: [{ type: 'hero', title: 'Holiday', tone: 'unknown' }] }).errors).not.toEqual([])
+  })
+
   it('uses registry field kinds and one-of rules during validation', () => {
     expect(validateGenuiSpec({ items: [{ type: 'card', title: 123, items: [] }] }).errors)
       .toContain('items[0].title must be a string')
