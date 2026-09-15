@@ -289,6 +289,111 @@ try {
     assert.equal(colors.width, '70%')
     log(`排序、颜色、悬停和节点重新插入验证通过：${JSON.stringify({ position, colors })}`)
     if (pageErrors.length > 0) throw new Error(`组件渲染异常: ${pageErrors.join(' | ')}`)
+    // Exercise the installed SVG without remounting it when the host changes theme.
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.evaluate(() => {
+      const fixture = document.createElement('div')
+      fixture.setAttribute('data-diagram-smoke', '')
+      fixture.style.width = '320px'
+      const host = document.createElement('div')
+      host.className = 'md-code-block'
+      const label = document.createElement('div')
+      label.textContent = 'dsh-ui'
+      const pre = document.createElement('pre')
+      pre.textContent = JSON.stringify({ items: [{ type: 'diagram', kind: 'architecture', title: '主题验收', nodes: [
+        { id: 'a', label: '入口', type: 'focal', x: 40, y: 40, w: 128, h: 64 },
+        { id: 'b', label: '服务', type: 'backend', x: 40, y: 144, w: 128, h: 64 },
+        { id: 'c', label: '存储', type: 'store', x: 40, y: 248, w: 128, h: 64 },
+      ], edges: [] }] })
+      host.append(label, pre)
+      fixture.append(host)
+      document.body.prepend(fixture)
+    })
+    const diagram = page.locator('[data-diagram-smoke] [data-genui-diagram]')
+    await diagram.waitFor({ state: 'visible' })
+    const originalSvg = await diagram.locator('svg').elementHandle()
+    for (const mode of ['light', 'dark', 'light']) {
+      await page.emulateMedia({ colorScheme: mode })
+      await page.waitForFunction(dark => document.body.hasAttribute('data-ds-dark-theme') === dark, mode === 'dark')
+      const result = await diagram.evaluate(element => {
+        const svg = element.querySelector('svg')
+        const text = [...svg.querySelectorAll('text')].find(t => t.textContent === '服务')
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = 'var(--dsw-alias-bg-layer-2)'
+        probe.style.color = 'var(--dsw-alias-label-primary)'
+        element.append(probe)
+        const expected = { paper: getComputedStyle(probe).backgroundColor, ink: getComputedStyle(probe).color }
+        probe.remove()
+        const rect = svg.getBoundingClientRect()
+        return {
+          expected, paper: getComputedStyle(svg).backgroundColor, ink: getComputedStyle(text).fill,
+          node: getComputedStyle(text.parentElement.querySelectorAll('rect')[1]).fill,
+          clipped: [...svg.querySelectorAll('text')].filter(t => {
+            const box = t.getBoundingClientRect()
+            return box.left < rect.left - 1 || box.right > rect.right + 1 || box.bottom > rect.bottom + 1
+          }).map(t => t.textContent),
+        }
+      })
+      assert.equal(result.paper, result.expected.paper, `${mode}: diagram follows host background`)
+      assert.equal(result.ink, result.expected.ink, `${mode}: diagram follows host text`)
+      assert.equal(result.node, result.expected.paper, `${mode}: backend node follows theme`)
+      assert.deepEqual(result.clipped, [], `${mode}: narrow diagram legend remains visible`)
+      assert.ok(await originalSvg.evaluate(el => el.isConnected), 'theme changes must not remount the diagram')
+      await diagram.screenshot({ path: join(artifactsDir, `diagram-${mode}.png`) })
+    }
+    log('图表深浅主题往返切换、节点配色及窄图例验证通过')
+
+    // Exercise every math-bearing field against the installed host and fonts.
+    await page.evaluate(() => {
+      const fixture = document.createElement('div')
+      fixture.setAttribute('data-math-smoke', '')
+      fixture.style.width = '320px'
+      const host = document.createElement('div')
+      host.className = 'md-code-block'
+      const label = document.createElement('div')
+      label.textContent = '  dsh-ui\n'
+      const pre = document.createElement('pre')
+      pre.textContent = JSON.stringify({ title: '\\(x^2\\)', items: [
+        { type: 'text', content: 'Energy **\\(E=mc^2\\)**; $$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$$' },
+        { type: 'list', items: ['Value ==\\(x^2\\)==', { title: '$a+b$', desc: '$c+d$' }] },
+        { type: 'table', columns: ['\\(x\\)'], rows: [['$x+y$']] },
+        { type: 'keyvalue', pairs: [{ key: 'Result', value: '$z^2$' }] },
+        { type: 'callout', title: '$a^2$', content: '$b^2$' },
+        { type: 'steps', steps: [{ title: '\\(a=b\\)', desc: '\\[\\begin{aligned}a&=b+c\\\\&=d\\end{aligned}\\]' }] },
+        { type: 'timeline', items: [{ title: '\\(x\\)', desc: '\\[f(x)=\\begin{cases}x&x>0\\\\-x&x<0\\end{cases}\\]' }] },
+        { type: 'card', title: '\\(a+b\\)', items: [] },
+        { type: 'quiz', question: '\\(x^2\\)', options: [{ label: '\\(4\\)', correct: true }] },
+        { type: 'tabs', tabs: [{ label: '\\(x\\)', items: [] }] },
+        { type: 'input', label: '\\(y\\)' },
+        { type: 'button', label: '\\(z\\)' },
+      ] })
+      host.append(label, pre)
+      fixture.append(host)
+      document.body.prepend(fixture)
+    })
+    const math = page.locator('[data-math-smoke] [data-genui]')
+    await math.waitFor({ state: 'visible' })
+    assert.equal(await math.locator('.katex').count(), 21, '所有覆盖的文字字段均渲染公式')
+    assert.equal(await math.locator('.katex-display').count(), 3, '矩阵、分段函数、多行推导独立显示')
+    assert.equal(await math.locator('.katex-error').count(), 0, '公式解析无错误')
+    await page.evaluate(() => document.fonts.ready)
+    for (const mode of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme: mode })
+      await page.waitForFunction(dark => document.body.hasAttribute('data-ds-dark-theme') === dark, mode === 'dark')
+      const geometry = await math.evaluate(element => {
+        const formula = element.querySelector('.katex')
+        const parent = formula.closest('[class*="inlineMath"]')
+        const box = formula.getBoundingClientRect()
+        return { width: box.width, height: box.height, color: getComputedStyle(formula).color,
+          inheritedColor: getComputedStyle(parent).color, overflow: element.scrollWidth > element.clientWidth + 1 }
+      })
+      assert.ok(geometry.width > 10 && geometry.height > 10)
+      assert.equal(geometry.color, geometry.inheritedColor)
+      assert.equal(geometry.overflow, false, '320px 窄卡公式不撑破布局')
+      await math.screenshot({ path: join(artifactsDir, `math-${mode}.png`) })
+    }
+    if (pageErrors.length > 0) throw new Error(`公式渲染异常: ${pageErrors.join(' | ')}`)
+    log('公式跨字段、深浅主题、窄卡布局和空白标签识别验证通过')
     log('smoke 模式：安装、激活、Diff/Code/JSON 真实渲染及复制均通过')
     await browser.close()
     await cleanup()

@@ -13,6 +13,41 @@ const html = (text: string): string => {
 }
 
 describe('inline markup', () => {
+  it.each([
+    String.raw`\(\frac{a}{b}\)`,
+    String.raw`\[\begin{pmatrix}a & b \\ c & d\end{pmatrix}\]`,
+    String.raw`$$\begin{cases}x^2 & x>0 \\ -x & x\le 0\end{cases}$$`,
+    String.raw`\[\begin{aligned}a&=b+c\\&=d\end{aligned}\]`,
+    String.raw`**$a*b$**`,
+    String.raw`==\(x^2\)==`,
+  ])('renders a complete formula: %s', source => {
+    const out = html(source)
+    expect(out).toContain('class="katex"')
+    expect(out).not.toContain('katex-error')
+    expect(out).toContain('<math')
+    expect(out).not.toContain('<div class=')
+  })
+
+  it('keeps a multiline display formula inside emphasis', () => {
+    const { container } = render(<span>{renderInline('**$$x +\ny$$**')}</span>)
+    expect(container.querySelector('strong .katex-display')).not.toBeNull()
+    expect(container.textContent).not.toContain('**')
+  })
+
+  it('updates a formula without leaving stale math or damaging surrounding text', () => {
+    const { container, rerender } = render(<span>{renderInline(String.raw`**\(x\)** tail`)}</span>)
+    expect(container.querySelector('strong .katex')).not.toBeNull()
+    rerender(<span>{renderInline(String.raw`**\(y+1\)** updated`)}</span>)
+    expect(container.querySelector('annotation')?.textContent).toBe('y+1')
+    expect(container.textContent).toContain('updated')
+  })
+
+  it('renders formula labels without nesting interactive links', () => {
+    const { container } = render(<button>{renderInline('[$x$](https://example.com)', false)}</button>)
+    expect(container.querySelector('button .katex')).not.toBeNull()
+    expect(container.querySelector('a')).toBeNull()
+  })
+
   it('renders code, bold, mark and an https link as elements', () => {
     const out = html('跑 `npm run build`，**一定要**看 ==退出码==，见 [文档](https://example.com/a)')
     expect(out).toContain('<code')
@@ -42,6 +77,27 @@ describe('inline markup', () => {
     const out = html('<img src=x onerror=alert(1)> 与 **加粗**')
     expect(out).not.toContain('<img')
     expect(out).toContain('&lt;img')
+  })
+
+  it('renders inline and display math while preserving code and unsafe-source boundaries', () => {
+    const { container } = render(<div>{renderInline('Energy $E=mc^2$; $$\\frac{a}{b}$$; `$x$`; <img src=x onerror=alert(1)>')}</div>)
+    expect(container.querySelectorAll('.katex')).toHaveLength(2)
+    expect(container.querySelector('.katex-display')).not.toBeNull()
+    expect(container.querySelector('code')?.textContent).toBe('$x$')
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('.katex-error')).toBeNull()
+  })
+
+  it('keeps escaped delimiters literal and refuses unsafe math links', () => {
+    expect(html(String.raw`Escaped \$x\$`)).not.toContain('katex')
+    const out = html(String.raw`$\href{javascript:alert(1)}{x}$`)
+    expect(out).not.toContain('href="javascript:')
+    expect(out).not.toContain('<script')
+  })
+
+  it('leaves currency and incomplete math literal', () => {
+    expect(html('Price $5 and $10')).not.toContain('katex')
+    expect(html('Unfinished $x + 1')).toContain('$x + 1')
   })
 
   it('returns the plain string untouched when there is no markup', () => {

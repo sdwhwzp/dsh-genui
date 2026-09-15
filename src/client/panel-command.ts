@@ -71,7 +71,8 @@ function applyPanelCommand(sessionId: string, args: string): void {
  */
 function panelClaim(sessionId: SessionId, sendInstruction: (sessionId: SessionId, instruction: string) => void) {
   return {
-    token: '/panel',
+    name: 'panel',
+    token: '/panel ',
     hint: '开启 GenUI 面板；/panel <指令> 让模型定制；/panel clear 清空',
     submit: async (args: string, _actx: ClientContext) => {
       const instruction = args.trim()

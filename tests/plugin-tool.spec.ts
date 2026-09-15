@@ -225,6 +225,28 @@ describe('validate_dsh_ui tool', () => {
     expect(value).toContain('仅成功解析出 1 个')
   })
 
+  it.each([
+    [{ type: 'keyvalue', items: 'invalid' }, 'pairs'],
+    [{ type: 'diff', items: [{ text: 'x' }] }, 'diffs'],
+    [{ type: 'table', columns: {}, rows: 42 }, 'columns'],
+    [{ type: 'callout', text: 'hello' }, 'content'],
+  ])('keeps field errors when invalid components are dropped: %j', async (node, field) => {
+    const value = String(await vtool.execute({ spec: { items: [node] } }))
+    expect(value).toContain('❌')
+    expect(value).toContain(`items[0]: type '${node.type}' requires ${field}`)
+  })
+
+  it('accepts saved itinerary field aliases and reports their normalization', async () => {
+    const value = String(await vtool.execute({ spec: { items: [
+      { type: 'keyvalue', items: [{ label: '住宿', value: '江边酒店' }] },
+      { type: 'steps', steps: [{ title: '上午', content: '博物馆' }] },
+    ] } }))
+    expect(value).toContain('✅')
+    expect(value).toContain('items[0].items → items[0].pairs')
+    expect(value).toContain('items[0].pairs[0].label → items[0].pairs[0].key')
+    expect(value).toContain('items[1].steps[0].content → items[1].steps[0].desc')
+  })
+
   it('reports native drop counts without counting opaque custom nodes', async () => {
     const value = String(await vtool.execute({ spec: {
       items: [{ type: 'image', src: 'javascript:blocked' }, { type: 'custom-widget' }],

@@ -42,6 +42,7 @@ describe('genui:fence section', () => {
     expect(text).toContain('"kind":"bars|line|donut"')
     expect(text).toContain('"label":"...","value":n')
     expect(text).toContain('series：bars 分组/堆叠 / line 多序列')
+    expect(text).toContain('Match the user’s language in prose and UI text.')
   })
 
   it('tells the model to emit the fence directly instead of pre-validating it', async () => {

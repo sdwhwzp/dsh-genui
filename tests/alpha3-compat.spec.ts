@@ -10,7 +10,7 @@ const ROOT = process.cwd()
  * its own composition never loads. A prerelease only satisfies a range that
  * carries a prerelease on the same line, so naming the line is the real check.
  */
-const DEPLOYED_HARNESS_LINE = '0.1.5'
+const DEPLOYED_HARNESS_LINE = '0.1.6'
 
 describe('deployed Harness compatibility', () => {
   it('does not restore the removed client-runtime package', async () => {

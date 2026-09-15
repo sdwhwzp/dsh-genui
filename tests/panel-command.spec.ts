@@ -60,7 +60,8 @@ describe('/panel slash source', () => {
       span: { start: 0, end: 6, draftRev: 0 },
     })
     expect(outcome).not.toBeUndefined()
-    expect(outcome).toHaveProperty('claim')
+    expect(outcome).toHaveProperty('claim.name', 'panel')
+    expect(outcome).toHaveProperty('claim.token', '/panel ')
     const claim = (outcome as { claim: { submit: (a: string) => Promise<unknown> } }).claim
     const result = await claim.submit('')
     expect(result).toEqual({ kind: 'success' })
@@ -71,6 +72,8 @@ describe('/panel slash source', () => {
   it('clears the panel on /panel clear (matchEnter path)', async () => {
     const outcome = await source.matchEnter!({ sessionId: SID } as never, '/panel clear', new AbortController().signal)
     expect(outcome).not.toBeUndefined()
+    expect(outcome).toHaveProperty('claim.name', 'panel')
+    expect(outcome).toHaveProperty('claim.token', '/panel ')
     const claim = (outcome as { claim: { submit: (a: string) => Promise<unknown> } }).claim
     const result = await claim.submit('clear')
     expect(result).toEqual({ kind: 'success' })
