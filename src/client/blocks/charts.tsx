@@ -309,7 +309,7 @@ export const TableNode = memo(function TableNode({ node, renderDetail, filterVal
     return (
       <td key={j} className={numeric[j] || type === 'num' ? css.tdNum : undefined}>
         {type === 'badge'
-          ? <span className={css.cellBadge}>{renderInline(String(cell), false)}</span>
+          ? <span className={css.cellBadge}>{renderInline(String(cell))}</span>
           : type === 'bar'
             ? <CellBar cell={cell} />
             : type === 'spark'
@@ -320,8 +320,8 @@ export const TableNode = memo(function TableNode({ node, renderDetail, filterVal
                   ? <span className={css.cellIndex}>{rowIndex + 1}</span>
                   : tone === null
                     // Format displayed text without changing sorting or exported data.
-                    ? renderInline(String(cell), false)
-                    : <span className={`${css.tdDelta} ${tone === 'up' ? css.tdDeltaUp : css.tdDeltaDown}`}>{renderInline(String(cell), false)}</span>}
+                    ? renderInline(String(cell))
+                    : <span className={`${css.tdDelta} ${tone === 'up' ? css.tdDeltaUp : css.tdDeltaDown}`}>{renderInline(String(cell))}</span>}
       </td>
     )
   }

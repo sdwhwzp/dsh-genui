@@ -205,3 +205,14 @@ describe('live-region confirmations (a11y)', () => {
     }
   })
 })
+
+
+it('preserves booking links in table cells across sorting without enabling unsafe URLs', () => {
+  const url = 'https://router.feizhu.com/multi/webview?url=https%3A%2F%2Frouter.feizhu.com%2Fws%2F19VXZs'
+  const container = renderBlock([{ type: 'table', columns: ['Flight', 'Link'], rows: [['CA1588', `[下单](${url})`], ['HU7388', '[bad](javascript:alert)']] }])
+  expect(container.querySelector('td a')?.getAttribute('href')).toBe(url)
+  expect(container.querySelectorAll('a')).toHaveLength(1)
+  fireEvent.click(container.querySelector('th button')!)
+  expect(container.querySelector('td a')?.getAttribute('href')).toBe(url)
+  expect(container.querySelector('th a')).toBeNull()
+})
