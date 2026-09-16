@@ -507,7 +507,7 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
       // The model commonly names the container `diff`, `changes` or `files`,
       // or passes a single record object instead of an array; accept them all
       // so one mislabeled field does not drop the whole node.
-      const diffs = repairDiffs(v.diffs ?? v.diff ?? v.changes ?? v.files)
+      const diffs = repairDiffs(v.diffs ?? v.diff ?? v.changes ?? v.files ?? v.content ?? v.text)
       if (diffs === undefined || diffs.length === 0) return null
       return { type: 'diff', diffs }
     }
@@ -901,7 +901,35 @@ function repairPairs(v: unknown, cap: number): Array<{ key: string; value: strin
   return out
 }
 
+/**
+ * Split a unified-diff string into the two sides, dropping the leading +/-/space
+ * markers. A hunk header (@@ … @@) and file headers (---/+++) are ignored. This
+ * lets a model that wrote a raw unified diff under `content` still render as a
+ * structured diff instead of losing the whole node.
+ */
+function parseUnifiedDiff(text: string): { oldText: string; newText: string } {
+  const oldLines: string[] = []
+  const newLines: string[] = []
+  for (const line of text.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@') || line.startsWith('diff ')) continue
+    const marker = line.charAt(0)
+    const body = line.slice(1)
+    if (marker === '+') newLines.push(body)
+    else if (marker === '-') oldLines.push(body)
+    else { oldLines.push(body); newLines.push(body) }
+  }
+  return { oldText: oldLines.join('\n'), newText: newLines.join('\n') }
+}
+
 function repairDiffs(v: unknown): Array<{ path: string; oldText: string | null; newText: string }> | undefined {
+  // A raw unified-diff string (the model wrote `content`/`text` instead of a
+  // structured list) becomes one pathless record split on its +/- markers.
+  if (typeof v === 'string') {
+    const trimmed = str(v, 40_000)
+    if (trimmed === undefined || trimmed.trim() === '') return undefined
+    const { oldText, newText } = parseUnifiedDiff(trimmed)
+    return [{ path: '', oldText: oldText === '' ? null : oldText, newText }]
+  }
   // A single diff record is accepted as a one-element list; the model often
   // omits the array wrapper for a single-file change.
   const list = Array.isArray(v) ? v : obj(v) !== undefined ? [v] : undefined
@@ -912,11 +940,21 @@ function repairDiffs(v: unknown): Array<{ path: string; oldText: string | null; 
     const o = obj(d)
     if (o === undefined) continue
     // Field aliases: the model writes file/filePath/filename for the path and
-    // new/after/content or old/before for the two sides.
-    const path = str(o.path, 1024) ?? str(o.file, 1024) ?? str(o.filePath, 1024) ?? str(o.filename, 1024)
-    const newText = str(o.newText, 20_000) ?? str(o.new, 20_000) ?? str(o.after, 20_000) ?? str(o.content, 20_000)
-    if (path === undefined || newText === undefined) continue
-    const old = o.oldText ?? o.old ?? o.before
+    // new/after for the new side; old/before for the old side.
+    const path = str(o.path, 1024) ?? str(o.file, 1024) ?? str(o.filePath, 1024) ?? str(o.filename, 1024) ?? ''
+    let newText = str(o.newText, 20_000) ?? str(o.new, 20_000) ?? str(o.after, 20_000)
+    let old: unknown = o.oldText ?? o.old ?? o.before
+    // A record carrying only a unified-diff string (content/diff/text) is split
+    // into both sides here.
+    if (newText === undefined) {
+      const unified = str(o.content, 40_000) ?? str(o.diff, 40_000) ?? str(o.text, 40_000)
+      if (unified !== undefined && unified.trim() !== '') {
+        const parsed = parseUnifiedDiff(unified)
+        newText = parsed.newText
+        if (old === undefined || typeof old !== 'string') old = parsed.oldText === '' ? null : parsed.oldText
+      }
+    }
+    if (newText === undefined) continue
     out.push({ path, newText, oldText: old === null || typeof old !== 'string' ? null : old.slice(0, 20_000) })
   }
   return out
@@ -1794,8 +1832,9 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
       // Accept the container under any of its common names, as an array or a
       // single record object, matching repairDiffs; only a wholly missing set
       // is an error.
-      const container = v.diffs ?? v.diff ?? v.changes ?? v.files
-      if (!Array.isArray(container) && (container === null || typeof container !== 'object')) {
+      const container = v.diffs ?? v.diff ?? v.changes ?? v.files ?? v.content ?? v.text
+      if (!Array.isArray(container) && typeof container !== 'string'
+        && (container === null || typeof container !== 'object')) {
         errors.push(`${at}: type 'diff' requires diffs (array)`)
       }
       break
