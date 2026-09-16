@@ -504,8 +504,11 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
       return { type: 'keyvalue', pairs }
     }
     case 'diff': {
-      const diffs = repairDiffs(v.diffs)
-      if (diffs === undefined) return null
+      // The model commonly names the container `diff`, `changes` or `files`,
+      // or passes a single record object instead of an array; accept them all
+      // so one mislabeled field does not drop the whole node.
+      const diffs = repairDiffs(v.diffs ?? v.diff ?? v.changes ?? v.files)
+      if (diffs === undefined || diffs.length === 0) return null
       return { type: 'diff', diffs }
     }
     case 'json': {
@@ -899,15 +902,21 @@ function repairPairs(v: unknown, cap: number): Array<{ key: string; value: strin
 }
 
 function repairDiffs(v: unknown): Array<{ path: string; oldText: string | null; newText: string }> | undefined {
-  if (!Array.isArray(v)) return undefined
+  // A single diff record is accepted as a one-element list; the model often
+  // omits the array wrapper for a single-file change.
+  const list = Array.isArray(v) ? v : obj(v) !== undefined ? [v] : undefined
+  if (list === undefined) return undefined
   const out: Array<{ path: string; oldText: string | null; newText: string }> = []
-  for (const d of v) {
+  for (const d of list) {
     if (out.length >= 24) break
     const o = obj(d)
-    const path = o === undefined ? undefined : str(o.path, 1024)
-    const newText = o === undefined ? undefined : str(o.newText, 20_000)
+    if (o === undefined) continue
+    // Field aliases: the model writes file/filePath/filename for the path and
+    // new/after/content or old/before for the two sides.
+    const path = str(o.path, 1024) ?? str(o.file, 1024) ?? str(o.filePath, 1024) ?? str(o.filename, 1024)
+    const newText = str(o.newText, 20_000) ?? str(o.new, 20_000) ?? str(o.after, 20_000) ?? str(o.content, 20_000)
     if (path === undefined || newText === undefined) continue
-    const old = o === undefined ? undefined : o.oldText
+    const old = o.oldText ?? o.old ?? o.before
     out.push({ path, newText, oldText: old === null || typeof old !== 'string' ? null : old.slice(0, 20_000) })
   }
   return out
@@ -1781,9 +1790,16 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
     case 'keyvalue':
       if (!Array.isArray(v.pairs)) errors.push(`${at}: type 'keyvalue' requires pairs (array)`)
       break
-    case 'diff':
-      if (!Array.isArray(v.diffs)) errors.push(`${at}: type 'diff' requires diffs (array)`)
+    case 'diff': {
+      // Accept the container under any of its common names, as an array or a
+      // single record object, matching repairDiffs; only a wholly missing set
+      // is an error.
+      const container = v.diffs ?? v.diff ?? v.changes ?? v.files
+      if (!Array.isArray(container) && (container === null || typeof container !== 'object')) {
+        errors.push(`${at}: type 'diff' requires diffs (array)`)
+      }
       break
+    }
     case 'json':
       if (!('value' in v)) errors.push(`${at}: type 'json' requires value`)
       break
