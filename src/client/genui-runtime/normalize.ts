@@ -231,6 +231,14 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
     out.items = defaultFileTreeDirectories(out.items)
   }
 
+  if (type === 'callout' && typeof out.content !== 'string' && typeof out.title === 'string') {
+    // A title-only callout carries its whole message in `title`; render it as
+    // the body instead of dropping the node (deployment fork).
+    out.content = out.title
+    delete out.title
+    warnings.push({ kind: 'alias', path: `${path}.title`, message: `${path}.title adopted as 'content' (no body given)`, type, field: 'title', canonical: 'content' })
+  }
+
   if (type === 'diff' && out.diffs !== undefined) {
     out.diffs = normalizeDiffRecords(out.diffs, `${path}.diffs`, warnings)
   }

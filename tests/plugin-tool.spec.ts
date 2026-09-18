@@ -303,7 +303,9 @@ describe('validate_dsh_ui tool', () => {
     // must be named with the field it actually wrote — the aggregate count
     // alone left the model guessing which component was broken.
     const value = String(await vtool.execute({ spec: {
-      items: [{ type: 'callout', title: '只有标题' }, { type: 'text', content: '好' }],
+      // A title-only callout is a supported alias (fork); a non-string title
+      // with no body is the genuinely dropped node.
+      items: [{ type: 'callout', title: 42 }, { type: 'text', content: '好' }],
     } }))
     expect(value).toContain('被丢弃的节点：')
     expect(value).toContain('- items[0]（callout）缺少必填字段 `content`；已写字段 title')

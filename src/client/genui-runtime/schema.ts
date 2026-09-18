@@ -273,7 +273,10 @@ export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   // `tone` value aliases: card/hero/badge/button all accept `danger` (and
   // badge uses `warn`), so models cross-write them onto callout — map them
   // onto the closest canonical tone instead of failing the enum (issue #186).
-  callout: schema(['content'], { ...nodeFields, title: 'string', content: 'string', tone: 'string' }, { kind: 'tone', text: 'content', body: 'content', desc: 'content' }, { enums: { tone: CALLOUT_TONES }, valueAliases: { tone: { danger: 'error', warn: 'warning' } } }),
+  // `message`/`description` joined the body aliases from a production reply
+  // that lost two callouts (deployment fork); a title-only callout is folded in
+  // `normalizeNode`.
+  callout: schema(['content'], { ...nodeFields, title: 'string', content: 'string', tone: 'string' }, { kind: 'tone', text: 'content', body: 'content', desc: 'content', message: 'content', description: 'content' }, { enums: { tone: CALLOUT_TONES }, valueAliases: { tone: { danger: 'error', warn: 'warning' } } }),
   card: schema(['items'], { ...nodeFields, title: 'string', items: 'nodes', tone: 'string', accent: 'string' }, { label: 'title', content: 'items' }, { enums: { tone: CARD_TONES } }),
   chart: schema([], {
     ...nodeFields,
