@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.11.1-preview.2-dsh.20260918.1] - 2026-09-18
+
+- 合并上游 0.11.1-preview.2 及后续 main（i18n、部分围栏渲染、别名语料、SVG、词云、离散交互）。已保存回复的别名改走上游别名表：`hero.number`、`hero.tone: brand`、`steps[].content`、`keyvalue.items[].label`；`diff` 容器接受 `diff`/`changes`/`content`/`text`、单个记录对象与 unified-diff 字符串，记录字段接受 `file`/`new`/`old` 等别名，缺文件名时以空 `path` 渲染。两个 bundle（宿主校验与浏览器渲染）共用同一份归一化。
+- `/panel` 继续携带 Harness 0.1.6 的命令名与参数分隔符；表格单元格保留安全链接；普通围栏继续直接输出。
+
+## [Unreleased]
+
+### 新增
+- **ECharts 词云**：`echart` 节点新增 `preset: "wordCloud"`，`data:[{label,value}]` 的 value 即权重，颜色按序循环 `palette`（缺省跟随主题调色板）；`option` 模式同步注册 `echarts-wordcloud` 扩展，`series[].type: "wordCloud"` 直接可用。完整版引擎新增约 30 KB（#183）。
+- **SVG 图形组件**：`{"type":"svg","code":"<svg …/>"}`（`title`/`height` 可选）以隔离图片模式渲染模型输出的独立 SVG——脚本注入、宿主样式污染在结构上被排除；解析失败或加载失败时保留源码并显示提示（#183）。
+- **裸 `svg` 围栏自动预览**：模型直接输出 ` ```svg ` 代码围栏（不带 `dsh-ui` 包装）时，落定后自动显示为图形预览，带「预览/源码」切换，源码可复制；流式生成中保持原样，不闪错误；仅接管语言标签明确为 `svg` 的围栏，其他语言代码块不受影响。registry 与 DOM 两条渲染通道均已接入（#183）。
+
+### 修复
+- **离散交互不再被防抖合并**：`button` / `checkbox` / `radio` / `switch` / `select` / `input` / `textarea` / `submit` / `quiz` 等一次手势一次事件的交互**立即逐次回传**。此前 300ms 防抖以 action 名为 key，快速连点同 action 名的控件会静默丢弃前几次事件，模型收到残缺交互状态，与 SKILL.md 承诺的 checkbox「默认保持逐次 action 行为」矛盾（#178）。
+- `slider` 拖拽保留防抖合并，且 key 从「action 名」改为「action 名 + `id`」：同一滑块的连续拖动仍合并成最后一次的值，多个共享 action 名的滑块互不挤占（#178）。
+
+### 新增
+- **文字字段支持换行**：JSON 字符串里的真实换行符（`\n`，含 `\r\n`）在 `text.content`、`callout` 正文、`list` 项、`keyvalue` 值等文字类字段里渲染为换行，不再被 HTML 空白规则折叠成空格；纯换行文本此前根本不进解析器（谓词不认 `\n`），现已修复。不引入 HTML 解析，`<br>` 仍字面显示；单行 chrome 类（nowrap）不含换行、不受影响。SKILL.md 行内标记表新增「该用什么」：多段文字写同一个字段用 `"\n"`，不要为换行拆成多个节点（#177）。
+- **界面语言（i18n）**：浏览器侧全部用户可见文案改由 `en` / `zh` 两套词典驱动（`src/client/i18n/`），不再硬编码。语言解析顺序为「宿主语言偏好 → 浏览器 `navigator.languages` → 英文」；英文同时作为**逐键兜底**，因此词典缺键只会回退、绝不会把界面渲染成空白。
+- **跟随 DSH 语言设置**：宿主提供 `@deepseek-ai/dsh-client-locale` 时，插件把两套词典注册到 `genui` 命名空间，并镜像宿主的当前语言（含后续切换）。该服务以**可选方式**读取、不写进 `inject`，所以不带该服务的宿主照常渲染（自动降级为浏览器探测）。
+- 语言切换在已挂载的界面上**原地生效**：面板、模板中心、成就页与组件 chrome 通过 `useSyncExternalStore` 订阅语言修订号，无需刷新。
+
+### 变更
+- `DEFAULT_PANEL_SPEC` → `defaultPanelSpec()`，`GENUI_TEMPLATES` → `genuiTemplates()`：内容含可翻译文案，改为**按调用构建**，避免被模块加载时刻的语言固化。
+- 模板分类改用稳定 id（`dashboard`/`data`/`flow`/`chart`/`interactive`/`quiz`/`advanced`），显示名走词典；成就仅持久化 id，名称与描述在读取时解析——切换语言不会丢失已解锁记录。
+- 围栏诊断（`describeFenceFailure`，两条通道共用）同样走词典，跟随当前语言。
+- 面向**模型**的文案（`[genui-action]` 提示词、注入系统提示的围栏词汇表）刻意不进词典：它属于插件与模型之间的协议，翻译它会改变模型行为而非界面语言。
+
+## [0.11.1-preview.2] - 2026-09-16
+
+### 新增
+- DOM 通道对被拒绝的围栏给出**可见诊断**：settled 之后仍无法渲染的 dsh-ui 围栏，会在原始代码块上方显示红色诊断条（字段错误或 JSON 解析原因），原始内容保留；此前只有 `console.warn`，围栏的作者看不到失败原因（#158）。
+- 可选的自修闭环 `fenceFeedback`（默认关闭，profile 配置 `fenceFeedback: true` 开启）：回复中的 dsh-ui 围栏未能渲染时，通过宿主的 `agent/turn-stopping` 边界把一条插件来源的修正请求 steer 进**同一回合**，让模型重发修正版。边界：每回合最多一次、同一围栏内容最多一次、子代理会话不触发、精确匹配 `dsh-ui` 围栏、发送前记账、取消的回合不触发（#160）。
+
+### 修复
+- 根形状判定不再被重载的 `items` 骗过：根对象带白名单 `type` 时优先按**单组件根**处理（`{"type":"steps","items":[…]}` 此前被当成信封，步骤记录逐个被丢弃后整份围栏被拒）；包装结果改为纯 spec 以免守卫二次包裹，根上的 `title` 在组件无该字段时上提为区块标题（#172）。
+- `stat` 指标组 `{"type":"stat","items":[{label,value},…]}` 归一化为一行多个 `stat`（规范的多指标写法），不再丢弃该节点并连坐同围栏里合法的兄弟节点（#172）。
+- `radio` / `select` / `quiz` 的 `items` 别名到 `options`，与 #175 的别名表取并集（#172）。
+- 字段名错误不再让整条围栏降级为代码块：`callout.content`（模型常写 text/body）、`keyvalue.pairs`（常写 items/rows/entries）、`diff.diffs`（常写 items）、`image`/`audio`/`video.src`（常写 url）、`code`/`copy`、`quiz.question`/`options`（常写 title/choices）补进别名表，规范化后照常渲染并保留 warning（#163、#172）。
+- `table` 只在给出行数据（`rows`/`data` 二维数组）而未给 `columns` 时，用首行作为表头推导列名，不再丢弃该节点；行列不齐时按 `列1…列N` 渲染，非二维体仍是契约错误（#172）。
+- `list` 的单元格式写法（`[["文本"]]` 会渲染成空列表）与 `{title, description}`（正文丢失），以及 `keyvalue.pairs` 的 `[[key, value]]` 写法，统一在规范化层转成规范形状（#172）。
+- 常驻提示词新增「字段名写错 = 整个围栏降级为代码块」的负例清单（callout 用 content、table 要 columns+rows、keyvalue 要 pairs），并压缩既有条目保持 #29 的 3200 字符预算。
+- `validate_dsh_ui` 的丢弃诊断从「声明 N / 解析 M」升级为逐节点归因：每个被丢弃节点给出位置、类型、**已写字段**与**缺少的必填字段**（`- items[0]（callout）缺少必填字段 content；已写字段 title`），原始错误列表保留（#163）。
+
 ## [0.11.1-preview.1-dsh.20260915.1] - 2026-09-15
 
 - 合并上游 0.11.1-preview.1，保留数学公式、嵌入渲染、阅读布局及已保存行程字段兼容。

@@ -93,9 +93,10 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 
 前置条件，缺一不可：
 
-1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`**（dsh-genui 0.11.1-preview.1 已验证 DSH 0.1.6-alpha.1，并保留 0.1.2-rc.1 下限验证；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
+1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`**（dsh-genui 0.11.1-preview.2 已验证 DSH 0.1.6-alpha.1，并保留 0.1.2-rc.1 下限验证；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
 
-部署 fork 保留已保存行程的字段别名与围栏直接输出行为。`/panel` 命令包含 Harness 0.1.6 要求的命令名及参数分隔空格，支持从菜单选择和直接回车执行。
+部署 fork 保留已保存回复的字段别名（`hero.number`、`hero.tone: brand`、`steps[].content`、`diff` 容器/记录别名与 unified-diff 字符串）、表格单元格安全链接与围栏直接输出行为。`/panel` 命令包含 Harness 0.1.6 要求的命令名及参数分隔空格，支持从菜单选择和直接回车执行。
+
 2. **`pnpm` 在 PATH 上**：`dsh plugin` 命令依赖它。没有就 `corepack enable`（或 `npm i -g pnpm`），然后**新开一个终端**，确认 `pnpm -v` 有输出
 
 安装并在 DSH 中激活（一行命令，自动带上全部依赖）：
@@ -171,8 +172,9 @@ dsh plugin --profile web add link:$PWD
 - **事件循环**：按钮/开关/输入/下拉/复选/单选/文本域/测验带 `action`，点击/失焦回传模型，模型更新界面；同名 action 300ms 尾沿防抖，连点合并为一次（最后一次的值生效）
 - **工具通道**：`render_ui` 工具把同一份 spec 渲染成工具行卡片（交付物型 UI 走工具、回答型 UI 走围栏）
 - **会话面板**：composer 上方常驻 dock，`render_ui` / `panel: true` 围栏原地更新同一块界面；`/panel` 命令客户端直开（`/panel <指令>` 转模型定制、`/panel clear` 清空）；顶边框可拖拽调高；`append: true` 增量合并——同名标签页追加内容、新标签页新增；整面板默认最多 200 节点 / 200 条追加，达到上限后模型应发送 `replace` 重建
-- **自愈与上限**：每个围栏过规格守卫——坏节点静默丢弃、数值钳位、字符串截断，整树 ≤200 节点 / 8 层嵌套，病态 spec 不会拖垮界面
-- **统一组件协议**：`card.label` → `title`、`table.data` → `rows`、`callout.kind` → `tone`、`steps.items` → `steps` 等原生字段别名会在校验和渲染前确定性归一化。行程还支持 `hero.number` → `value`、`steps.steps[].content` → `desc`、`keyvalue.items` → `pairs`、`keyvalue.pairs[].label` → `key`，显式提供的规范字段优先；这些兼容规则同时用于流式生成和重新打开已保存回复。`validate_dsh_ui` 会报告归一化结果，并对原生组件未知字段给出警告，同时保持自定义 renderer 节点的透明兼容。
+- **围栏自修（可选）**：插件配置 `fenceFeedback: true` 开启（profile 的 cordis.patch.yml 中本插件条目的 `config:` 下）——回答里有 dsh-ui 围栏没渲染成时，插件借宿主的轮内转向（steer）把逐节点诊断送回**同一轮**，模型重发修好的围栏；每轮至多一次、每个围栏至多一次、子代理不触发，不会循环。默认关闭：重试要花模型步数，由部署者决定。
+- **自愈与上限**：每个围栏过规格守卫——坏节点静默丢弃（同围栏其余组件照常渲染，单个坏组件不再拖垮整条围栏）、数值钳位、字符串截断，整树 ≤200 节点 / 8 层嵌套，病态 spec 不会拖垮界面
+- **统一组件协议**：`card.label` → `title`、`table.data`/`table.items` → `rows`、`callout.kind`/`callout.desc` → `tone`/`content`（tone 值 `danger` → `error`）、`steps.items` → `steps`、`keyvalue.items` → `pairs`（记录内 `label` → `key`）、`file-tree.nodes` → `items`（记录内 `label` → `name`、有 children 时缺省 `dir`）等原生字段别名会在校验和渲染前确定性归一化；根级组件数组视为 `items`、双重编码的 JSON 字符串解一层；`validate_dsh_ui` 会报告归一化结果，并对原生组件未知字段给出警告，同时保持自定义 renderer 节点的透明兼容。
 - **图错误自愈**：mermaid 渲染失败自动修复重试（剥反引号、引号化中文/空格标签、去 `<br/>`），仍失败才降级源码；错误图永不直接上屏
 - **可访问性**：tabs/折叠/开关/进度条带完整 ARIA 与键盘导航（方向键切页、Home/End 跳转）
 - **零打扰**：不装插件时围栏只是代码块，不报错、不污染会话

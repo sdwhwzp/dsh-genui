@@ -1,5 +1,7 @@
 /** Deterministic GenUI alias and structural normalization. */
 import { COMPONENT_SCHEMAS } from './schema.ts'
+import type { ComponentRecordSchema } from './schema.ts'
+import { isComponentRoot } from '../spec.ts'
 import type { GenuiDiagnostic } from './diagnostics.ts'
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -13,9 +15,45 @@ function isNode(value: unknown): value is Record<string, unknown> {
   return candidate !== undefined && typeof candidate.type === 'string'
 }
 
-function normalizeAliasFields(value: Record<string, unknown>, path: string, type: string, warnings: GenuiDiagnostic[], aliases: Readonly<Record<string, string>>): Record<string, unknown> {
+/** Fields a `stat` keeps when a metric record is folded into its own node. */
+const STAT_METRIC_FIELDS = ['label', 'value', 'delta', 'spark', 'size'] as const
+
+/**
+ * Normalize one metric record of a stat group into a single-metric `stat`
+ * node, or null when the entry is not a metric at all.
+ */
+function statMetricsOf(
+  entries: readonly unknown[],
+  path: string,
+  normalizeChild: (child: unknown, childPath: string) => unknown,
+): unknown[] | null {
+  if (entries.length === 0) return null
+  const metrics: unknown[] = []
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index]
+    const metric = record(entry)
+    if (metric === undefined) return null
+    // An entry that is already a node passes through: the model enumerated
+    // its own components instead of bare metrics.
+    if (isNode(entry)) {
+      metrics.push(normalizeChild(entry, `${path}.items[${index}]`))
+      continue
+    }
+    if (typeof metric.label !== 'string' && typeof metric.value !== 'string') return null
+    const stat: Record<string, unknown> = { type: 'stat' }
+    for (const field of STAT_METRIC_FIELDS) {
+      if (metric[field] !== undefined) stat[field] = metric[field]
+    }
+    metrics.push(stat)
+  }
+  return metrics
+}
+
+function normalizeAliasFields(value: Record<string, unknown>, path: string, type: string, warnings: GenuiDiagnostic[]): Record<string, unknown> {
+  const definition = COMPONENT_SCHEMAS[type]
+  if (definition === undefined) return value
   const out: Record<string, unknown> = { ...value }
-  for (const [alias, canonical] of Object.entries(aliases)) {
+  for (const [alias, canonical] of Object.entries(definition.aliases)) {
     if (!(alias in out)) continue
     const aliasPath = `${path}.${alias}`
     const keptCanonical = canonical in out
@@ -32,7 +70,144 @@ function normalizeAliasFields(value: Record<string, unknown>, path: string, type
       canonical,
     })
   }
+  for (const [field, values] of Object.entries(definition.valueAliases)) {
+    const written = out[field]
+    if (typeof written !== 'string') continue
+    const canonical = values[written]
+    if (canonical === undefined || canonical === written) continue
+    out[field] = canonical
+    warnings.push({
+      kind: 'alias',
+      path: `${path}.${field}`,
+      message: `${path}.${field} '${written}' normalized to '${canonical}'`,
+      type,
+      field,
+      canonical,
+    })
+  }
   return out
+}
+
+/**
+ * Apply a nested record schema's field aliases to a record tree: every entry
+ * of an array (and every nested record collection below it) is rewritten in
+ * place-equivalent copies, so validation, repair, and diagnostics all see the
+ * canonical record fields (`keyvalue.pairs[].label → key`,
+ * `file-tree.items[].label → name`, issue #186).
+ */
+function normalizeRecordTree(
+  value: unknown,
+  definition: ComponentRecordSchema,
+  at: string,
+  type: string,
+  warnings: GenuiDiagnostic[],
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => normalizeRecordTree(entry, definition, `${at}[${index}]`, type, warnings))
+  }
+  const holder = record(value)
+  if (holder === undefined) return value
+  const out = { ...holder }
+  for (const [alias, canonical] of Object.entries(definition.aliases)) {
+    if (!(alias in out) || canonical in out) continue
+    out[canonical] = out[alias]
+    delete out[alias]
+    warnings.push({
+      kind: 'alias',
+      path: `${at}.${alias}`,
+      message: `${at}.${alias} normalized/adopted as '${canonical}'`,
+      type,
+      field: alias,
+      canonical,
+    })
+  }
+  for (const [field, nested] of Object.entries(definition.nested)) {
+    if (out[field] !== undefined) out[field] = normalizeRecordTree(out[field], nested, `${at}.${field}`, type, warnings)
+  }
+  return out
+}
+
+/**
+ * file-tree parents without a `type`: a record that carries `children` is a
+ * directory in every model-written tree, and the renderer's collapse
+ * affordance depends on the marker (issue #186).
+ */
+function defaultFileTreeDirectories(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(defaultFileTreeDirectories)
+  const holder = record(value)
+  if (holder === undefined) return value
+  const out = { ...holder }
+  if (out.type === undefined && Array.isArray(out.children)) out.type = 'dir'
+  if (out.children !== undefined) out.children = defaultFileTreeDirectories(out.children)
+  return out
+}
+
+/**
+ * Split a unified-diff string into its two sides, dropping the leading
+ * `+`/`-`/space markers; hunk headers (`@@ … @@`), file headers (`---`/`+++`)
+ * and `diff ` lines are ignored.
+ */
+function parseUnifiedDiff(text: string): { oldText: string; newText: string } {
+  const oldLines: string[] = []
+  const newLines: string[] = []
+  for (const line of text.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@') || line.startsWith('diff ')) continue
+    const marker = line.charAt(0)
+    const body = line.slice(1)
+    if (marker === '+') newLines.push(body)
+    else if (marker === '-') oldLines.push(body)
+    else { oldLines.push(body); newLines.push(body) }
+  }
+  return { oldText: oldLines.join('\n'), newText: newLines.join('\n') }
+}
+
+/**
+ * Canonicalize the `diff.diffs` container after its field aliases applied
+ * (deployment fork): a unified-diff string or a single record becomes a
+ * one-element list; a record carrying only a unified-diff string under
+ * `content`/`diff`/`text` is split into `oldText`/`newText`; a record with a
+ * new side but no file name gets an empty `path`. Saved replies wrote every
+ * one of these and the node must keep rendering.
+ */
+function normalizeDiffRecords(value: unknown, at: string, warnings: GenuiDiagnostic[]): unknown {
+  const alias = (path: string, message: string, field: string, canonical: string): void => {
+    warnings.push({ kind: 'alias', path, message, type: 'diff', field, canonical })
+  }
+  let list: unknown
+  if (typeof value === 'string') {
+    if (value.trim() === '') return value
+    const sides = parseUnifiedDiff(value)
+    alias(at, `${at} unified-diff string normalized into one diff record`, 'diffs', 'diffs')
+    return [{ path: '', oldText: sides.oldText === '' ? null : sides.oldText, newText: sides.newText }]
+  } else if (Array.isArray(value)) {
+    list = value
+  } else if (record(value) !== undefined) {
+    alias(at, `${at} single diff record normalized into a list`, 'diffs', 'diffs')
+    list = [value]
+  } else {
+    return value
+  }
+  return (list as unknown[]).map((entry, index) => {
+    const holder = record(entry)
+    if (holder === undefined) return entry
+    const out = { ...holder }
+    const recordPath = `${at}[${index}]`
+    if (out.newText === undefined) {
+      const unified = ['content', 'diff', 'text'].find(field => typeof out[field] === 'string' && (out[field] as string).trim() !== '')
+      if (unified !== undefined) {
+        const sides = parseUnifiedDiff(out[unified] as string)
+        out.newText = sides.newText
+        if (typeof out.oldText !== 'string') out.oldText = sides.oldText === '' ? null : sides.oldText
+        delete out[unified]
+        alias(`${recordPath}.${unified}`, `${recordPath}.${unified} unified-diff string split into oldText/newText`, unified, 'newText')
+      }
+    }
+    if (out.path === undefined && typeof out.newText === 'string') {
+      out.path = ''
+      alias(`${recordPath}.path`, `${recordPath}.path missing; rendered without a file name`, 'path', 'path')
+    }
+    return out
+  })
 }
 
 function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]): unknown {
@@ -41,28 +216,77 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
   const definition = COMPONENT_SCHEMAS[type]
   // Custom nodes are opaque by contract: don't inspect or rewrite their data.
   if (definition === undefined) return value
-  const out = normalizeAliasFields(value, path, type, warnings, definition.aliases)
-  if (type === 'hero' && out.tone === 'brand') {
-    out.tone = 'accent'
-    warnings.push({ kind: 'alias', path: `${path}.tone`, message: `${path}.tone value 'brand' normalized as 'accent'`, type, field: 'tone', canonical: 'accent' })
+  const out = normalizeAliasFields(value, path, type, warnings)
+  // Nested data records (keyvalue pairs, file-tree items, …) carry their own
+  // field aliases — apply them before validation/repair see the records.
+  for (const [field, nested] of Object.entries(definition.nested)) {
+    if (out[field] !== undefined) out[field] = normalizeRecordTree(out[field], nested, `${path}.${field}`, type, warnings)
   }
   const normalizeNodeValue = (child: unknown, childPath: string): unknown => normalizeNode(child, childPath, warnings)
   const normalizeNodeArray = (children: unknown, childPath: string): unknown => Array.isArray(children)
     ? children.map((child, index) => normalizeNodeValue(child, `${childPath}[${index}]`))
     : children
 
-  if (type === 'keyvalue' || type === 'steps') {
-    const field = type === 'keyvalue' ? 'pairs' : 'steps'
-    const aliases: Readonly<Record<string, string>> = type === 'keyvalue' ? { label: 'key' } : { content: 'desc' }
-    const entries = out[field]
-    if (Array.isArray(entries)) out[field] = entries.map((entry, index) => {
-      const holder = record(entry)
-      return holder === undefined ? entry : normalizeAliasFields(holder, `${path}.${field}[${index}]`, type, warnings, aliases)
-    })
-  } else if (type === 'row' || type === 'col' || type === 'grid' || type === 'card' || type === 'file-tree' || type === 'timeline' || type === 'breadcrumb') {
+  if (type === 'file-tree' && out.items !== undefined) {
+    out.items = defaultFileTreeDirectories(out.items)
+  }
+
+  if (type === 'diff' && out.diffs !== undefined) {
+    out.diffs = normalizeDiffRecords(out.diffs, `${path}.diffs`, warnings)
+  }
+
+  if (type === 'stat' && Array.isArray(out.items) && out.label === undefined && out.value === undefined) {
+    // Model-side generalization: one `stat` carrying a metric list
+    // ({type:'stat',items:[{label,value},…]}) means "these metrics, side by
+    // side". Normalize it into a row of single-metric stats, the documented
+    // multi-stat idiom (SKILL.md), instead of letting repair drop the node and
+    // reject the whole fence (issue #172, case A). A group that also declares
+    // `label`/`value` is a single stat with stray fields and stays untouched.
+    const metrics = statMetricsOf(out.items, path, normalizeNodeValue)
+    if (metrics !== null) {
+      warnings.push({
+        kind: 'alias',
+        path: `${path}.items`,
+        message: `${path}.items normalized into a row of 'stat' nodes`,
+        type,
+        field: 'items',
+        canonical: 'row',
+      })
+      return { type: 'row', items: metrics, ...(out.span !== undefined ? { span: out.span } : {}) }
+    }
+  }
+
+  if (type === 'row' || type === 'col' || type === 'grid' || type === 'card' || type === 'file-tree' || type === 'timeline' || type === 'breadcrumb') {
     if (type !== 'file-tree' && type !== 'timeline' && type !== 'breadcrumb') out.items = normalizeNodeArray(out.items, `${path}.items`)
   } else if (type === 'list' && Array.isArray(out.items)) {
-    out.items = out.items.map((child, index) => isNode(child) ? normalizeNodeValue(child, `${path}.items[${index}]`) : child)
+    // List items are a union (string | {title,desc} | nested node), and models
+    // routinely dump 1×N / N×1 table cells in place of the item: `[["文本"]]`
+    // renders as an EMPTY list and `{title, description}` loses its body
+    // (repair reads `desc`). Both are pure shape defects — normalize them here
+    // so validation, diagnostics, and repair all see the canonical item.
+    out.items = out.items.map((child, index) => {
+      if (isNode(child)) return normalizeNodeValue(child, `${path}.items[${index}]`)
+      if (Array.isArray(child) && child.length === 1 && typeof child[0] === 'string') return child[0]
+      const holder = record(child)
+      if (holder === undefined || !('description' in holder)) return holder === undefined ? child : { ...holder }
+      const normalizedHolder = { ...holder }
+      const description = normalizedHolder.description
+      delete normalizedHolder.description
+      if (!('desc' in normalizedHolder) && typeof description === 'string') normalizedHolder.desc = description
+      return normalizedHolder
+    })
+  } else if (type === 'keyvalue' && Array.isArray(out.pairs)) {
+    // Pair-as-array (`[[key, value], …]` or `[[key], …]`) is what a model
+    // writes when it treats keyvalue as a 2-column list. Canonicalize before
+    // validation: the record validator rejects every array entry ("must be an
+    // object"), and those errors take the whole fence down even though repair
+    // could read the data.
+    if (out.pairs.length > 0 && out.pairs.every(pair => Array.isArray(pair))) {
+      out.pairs = out.pairs.map(pair => {
+        const cells = pair as unknown[]
+        return { key: cells[0], value: cells.length > 1 ? cells[1] : '' }
+      })
+    }
   } else if (type === 'tabs' && Array.isArray(out.tabs)) {
     out.tabs = out.tabs.map((tab, index) => {
       const holder = record(tab)
@@ -113,10 +337,44 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
  */
 export function normalizeGenuiSpec(value: unknown): { value: unknown; warnings: GenuiDiagnostic[] } {
   const warnings: GenuiDiagnostic[] = []
+  if (typeof value === 'string') {
+    // Double-encoded body (issue #186): the model escaped the whole spec into
+    // a JSON string. Decode exactly once — anything deeper is quoted prose,
+    // not a spec, and stays unrenderable.
+    try {
+      const decoded: unknown = JSON.parse(value)
+      if (record(decoded) !== undefined || Array.isArray(decoded)) {
+        value = decoded
+        warnings.push({
+          kind: 'alias',
+          path: 'spec',
+          message: 'double-encoded JSON string unwrapped into a spec value',
+        })
+      }
+    } catch {
+      // Not JSON text: leave as-is; repair rejects the root as usual.
+    }
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    // A root-level component list is the envelope minus its braces (issue
+    // #186): adopt it as `items` instead of rejecting the whole fence. An
+    // empty list has nothing to render and stays an invalid root.
+    value = { items: value }
+    warnings.push({
+      kind: 'alias',
+      path: 'items',
+      message: 'root array normalized into an items envelope',
+    })
+  }
   const root = record(value)
   if (root === undefined) return { value, warnings }
-  if (typeof root.type === 'string') return { value: normalizeNode(root, 'spec', warnings), warnings }
   const out = { ...root }
+  // A bare component root is normalized as a node, not as an envelope whose
+  // `items` are its children: for a data component (steps/list/timeline/…)
+  // `items` is the record list and its aliases must still apply (issue #172).
+  if (isComponentRoot(out)) {
+    return { value: normalizeNode(out, 'spec', warnings), warnings }
+  }
   if (Array.isArray(out.items)) {
     out.items = out.items.map((item, index) => normalizeNode(item, `items[${index}]`, warnings))
   }

@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRenderUiTool, createValidateDshUiTool } from './tool.ts'
+import { installFenceFeedback } from './fence-feedback.ts'
 
 /* ---------------- lazy engine asset route ---------------- */
 
@@ -94,26 +95,28 @@ export const GENUI_SECTION_TEXT = `You can render interactive UI components INSI
 
 Allowed \`type\` values; the \`genui\` skill, when available, carries the full content→component mapping and per-component field details:
 
-- 布局: text · row · col · grid · card · divider · spacer · hero（封面块：超大数字 + 标题 + tone 渐变底色，一条回答最多一个）
-- 展示: badge · stat · progress · list · table · keyvalue · avatar · audio · video · timeline · file-tree · breadcrumb · callout · steps · diff · json · code · copy
+- 布局: text · row · col · grid · card · divider · spacer · hero（封面块，一条回答最多一个）
+- 展示: badge · stat · progress · list · table · keyvalue · timeline · file-tree · breadcrumb · callout · steps · diff · json · code · copy · avatar · audio · video
 - 图表: chart {"kind":"bars|line|donut","data":[{"label":"...","value":n}],"series":[{"label":"...","data":[...]}]?,"horizontal":true?,"stacked":true?}（series：bars 分组/堆叠 / line 多序列；horizontal 横向柱） · echart (preset 名或 option 直通，预设清单见 skill) · plot (函数图)
 - 交互: button · input · textarea · select · checkbox · switch · slider · radio · submit · quiz · link · tabs · accordion
-- 高级: mermaid (流程图/时序/类图/甘特/饼图/ER/状态/旅程，关键字见 skill) · diagram (架构/流程图) · scene3d (3D WebGL)
+- 高级: mermaid (流程图/时序/甘特/ER 等，关键字见 skill) · diagram (架构/流程图，27 种 kind) · scene3d (3D WebGL)
 
 **默认就该出 UI**：出现下列情况至少出一个围栏：
 - ≥3 条并列要点 → \`list\`；数字对比 → \`table\`；指标/进度/状态 → \`stat\`/\`progress\`/\`badge\`
 - 步骤/时间线 → \`steps\`/\`timeline\`/\`mermaid\`；架构/流程 → \`diagram\` 或 \`mermaid\`；风险/结论 → \`callout\`；代码/改动 → \`code\`/\`diff\`/\`json\`
-- 行内富文本：\`text\`/\`list\`/表格文本列/\`keyvalue\`/\`callout\` 里可写 $公式$、$$块公式$$、\`code\`、**加粗**、==高亮==、[文字](url)：重点留在句中，不必为一个词单起组件。
-- 默认无卡 ≠ 少用组件：硬触发照常出组件，**组件多不是问题**——判据是每个组件承载不同信息、有焦点与层次、同一批数据不重复表达。卡片只用于并排项与数据对象；单段文字用「标题 + 正文 + 间距」。
+- 行内富文本：\`text\`/\`list\`/表格文本列/\`keyvalue\`/\`callout\` 里可写 $公式$、$$块公式$$、\`code\`、**加粗**、==高亮==、[文字](url)。
+- 默认无卡 ≠ 少用组件：硬触发照常出组件，**组件多不是问题**——判据是每个组件承载不同信息、有焦点与层次。卡片只用于并排项与数据对象；单段文字用「标题 + 正文 + 间距」。
 
 **发回答前最后自检一次**：这段内容里有没有 ≥3 条并列要点、任何对比、任何数字/指标、任何步骤或流程？有就先转成组件再开口。**状态汇报、进度说明、提交与改动清单同样算**。
-- 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；配色默认跟随主题，只有语义需要时才用 \`palette\` / \`card.accent\`；排版用 grid 子节点的 \`"span":2\` 跨列做宽窄混排（bento），不要一列方块堆到底；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选，不用再问一遍
+- 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；配色默认跟随主题，只有语义需要时才用 \`palette\`/\`card.accent\`；grid 子节点用 \`"span":2\` 跨列做宽窄混排；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选。
 
-**字段速查**（完整见 genui skill）：\`stat\` \`{"label","value","delta"?}\` · \`table\` \`{"columns":[...],"rows":[[...]],"types"?,"total"?:true,"details"?:[[...]],"filter"?:id,"export"?:true}\` · \`callout\` \`{"tone":"info|success|warning|error","title","content"}\` · \`progress\` \`{"value":0-100,"label"?,"variant"?,"target"?}\` · \`keyvalue\` \`{"pairs":[{"key","value"}]}\` · \`steps\` \`{"steps":[{"title","desc"?}]}\`
+**字段速查**（完整见 genui skill）：\`stat\` \`{"label","value","delta"?}\` · \`table\` \`{"columns":[...],"rows":[[...]],"types"?,"details"?,"filter"?,"export"?}\` · \`progress\` \`{"value":0-100,"label"?,"variant"?,"target"?}\` · \`keyvalue\` \`{"pairs":[{"key","value"}]}\` · \`steps\` \`{"steps":[{"title","desc"?}]}\` · \`file-tree\` \`{"items":[{"name","type":"file|dir","children"?}]}\` · \`callout\` \`{"content","tone"?,"title"?}\`
+
+**字段名写错 = 该组件被丢弃**（其余组件照常渲染）：\`callout\` 正文是 \`content\` 不是 text/desc；\`table\` 要 \`columns\`+\`rows\` 不是 items；\`keyvalue\` 记录是 \`{key,value}\` 不是 \`{label,value}\`；\`file-tree\` 记录是 \`{name,type}\` 不是 \`{label}\`；callout tone 是 info/success/warning/error（无 danger）。不确定就调 \`validate_dsh_ui\`。
 
 Rules:
 - Match the user’s language in prose and UI text. Chinese examples are schema examples, not a language instruction. Keep JSON keys/type values unchanged.
-- JSON 严格: 围栏直接发，不要先调 validate_dsh_ui 预校验。渲染器自动修复可恢复的引号/逗号/括号，失败才降级为代码块。只有围栏已渲染失败、或手写 100 行以上的大 body 时才调用校验（❌ 若附「已自动修复」JSON 照抄即可）。
+- JSON 严格: 围栏直接发，不要先调 validate_dsh_ui 预校验。渲染器自动修复可恢复的引号/逗号/括号，坏组件被丢弃、坏围栏才降级为代码块。只有围栏已渲染失败、或手写 100 行以上的大 body 时才调用校验（❌ 若附「已自动修复」JSON 照抄即可）。
 - 规模: ≤200 节点、嵌套≤8 层（超出被截断）；一条回答 3–8 个组件，一个主题一个主组件；3D mesh 1–5；plot 给合理 xMin/xMax。
 - LOCAL-FIRST + actions: UI 能自己做的状态变化（判卷、判题、重置、展开、选中）就地完成，零往返；action 只用于必须模型参与的事。交互组件带 "action":"name"，交互以 [genui-action] name + 组件数据回传，届时重渲染更新 UI；无 action 的按钮禁用。
 - Durable state: 交互状态按「会话+内容指纹」持久化——刷新/重放恢复；重渲染相同内容保留，新内容重置。
@@ -173,12 +176,27 @@ function bundledSkillProvider(): SkillProvider {
   }
 }
 
-export function apply(ctx: Context): void {
+/**
+ * Plugin config as the host passes it (unvalidated: the node half deliberately
+ * imports no schema library, so a profile can set these keys directly).
+ */
+export interface GenuiPluginConfig {
+  /**
+   * Steer ONE correction into a turn whose dsh-ui fence did not render, so the
+   * model can resend a fixed fence (issue #160). Off by default: the loop is
+   * bounded (one per turn, one per fence, never for subagents) but it spends
+   * model steps, which is the operator's call.
+   */
+  fenceFeedback?: boolean
+}
+
+export function apply(ctx: Context, config?: GenuiPluginConfig): void {
   ctx.systemPrompt.section({
     name: 'genui:fence',
     order: ctx.systemPrompt.getSectionOrder('STRUCTURED_OUTPUT'),
     text: GENUI_SECTION_TEXT,
   })
+  installFenceFeedback(ctx, config?.fenceFeedback === true)
   // Hosts without tool access keep the fence channel. The dependency fiber
   // starts whenever tools becomes available and unloads its registrations
   // before either the service or this plugin is replaced.

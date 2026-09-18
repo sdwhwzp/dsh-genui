@@ -9,17 +9,19 @@
  *   (`dom-fence.ts`) finds stock code blocks labelled `dsh-ui` and mounts
  *   {@link renderResolvedFenceNode} into its own React root, wrapped in the
  *   plugin-owned action context. An unrepairable body returns `null` so the
- *   stock code block stays visible.
+ *   stock code block stays visible, with {@link FenceDiagnostic} mounted above
+ *   it so the defect is never silent (issue #158).
  *
  * Structural types are declared locally on purpose: the context contract is
  * a data shape, and pristine hosts do not export the host-side type names.
  */
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Key, type ReactNode } from 'react'
 import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CODE_BLOCK_LABELS } from './primitive-labels.ts'
+import { codeBlockLabels } from './primitive-labels.ts'
+import { t, useT } from './i18n/index.ts'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { GenuiBlock } from './GenuiBlock.tsx'
-import { isRenderableProcess, processGenuiSpec } from './guard.ts'
+import { isRenderableProcess, partialRepairGenuiSpec, processGenuiSpec } from './guard.ts'
 import { fenceStateKey } from './interaction-store.ts'
 import { parsePartialGenuiSpec } from './parse-partial.ts'
 import { applyPanelOperation, diagnosePanelBudget, type PanelOperationStatus } from './panel-store.ts'
@@ -68,8 +70,8 @@ function processSemanticFailure(raw: string): string | null {
   if (isRenderableProcess(processed)) return null
   const chartErrors = formatChartProcessErrors(processed.errors)
   return chartErrors === null
-    ? `GenUI 字段验证失败：${processed.errors.join('；')}`
-    : `chart 字段验证失败：${chartErrors}`
+    ? t('err.fieldValidation', { errors: processed.errors.join('；') })
+    : t('err.chartValidation', { errors: chartErrors })
 }
 
 /**
@@ -90,40 +92,57 @@ function processSemanticFailure(raw: string): string | null {
  *    so the defect is visible instead of silent.
  */
 /**
- * Describe a settled fence failure for either rendering channel.
- * @param raw - Original fence JSON.
- * @returns A diagnostic, or null when no failure is identified.
+ * Explain why a ```dsh-ui body cannot render, as the one-line message both
+ * channels show. Returns null when there is nothing to report (the body is
+ * renderable, or it is an empty/streaming half).
+ *
+ * @param raw - the raw fence body.
+ * @returns the diagnostic text, or null.
  */
-export function describeGenuiFenceFailure(raw: string): string | null {
-  const semantic = processSemanticFailure(raw)
-  if (semantic !== null) return semantic
-  if (raw.trim() === '') return 'JSON 内容为空'
-  const parse = describeJsonFailure(raw)
-  return parse === null ? null : `JSON 解析失败${parse}`
+export function describeFenceFailure(raw: string): string | null {
+  const processDiagnostic = processSemanticFailure(raw)
+  if (processDiagnostic !== null) {
+    return t('err.fenceKeptAsCode', { diagnostic: processDiagnostic })
+  }
+  if (raw.trim() === '') return null
+  const parseDiagnostic = describeJsonFailure(raw)
+  if (parseDiagnostic === null) return null
+  return t('err.fenceParse', { diagnostic: parseDiagnostic })
+}
+
+/**
+ * The visible diagnostic for a settled, unrenderable ```dsh-ui body.
+ *
+ * Shared by both channels: the registry channel renders it above its own
+ * fallback code block, the DOM channel above the host's stock code block. A
+ * fence that keeps degrading to raw JSON must say why it degraded — the
+ * console-only path left the defect invisible (issues #158/#172).
+ *
+ * @param raw - the raw fence body.
+ * @returns the alert strip, or null when the body has nothing to report.
+ */
+export function FenceDiagnostic({ raw }: { raw: string }): ReactNode {
+  // Subscribe so a language switch re-renders an already-visible diagnostic.
+  useT()
+  const message = describeFenceFailure(raw)
+  if (message === null) return null
+  return <div style={FENCE_ERROR_STYLE} role="alert">{message}</div>
 }
 
 function FenceFallback({ raw, fenceKey }: { raw: string; fenceKey: Key }) {
+  // Subscribed for the CodeBlock copy labels below.
+  useT()
   const ref = useRef<HTMLDivElement | null>(null)
   const [settled, setSettled] = useState(false)
   useLayoutEffect(() => {
     const node = ref.current
     if (node !== null && node.closest('[data-streaming]') === null) setSettled(true)
   })
-  const processDiagnostic = settled ? processSemanticFailure(raw) : null
-  const parseDiagnostic = settled && processDiagnostic === null && raw.trim() !== '' ? describeJsonFailure(raw) : null
+  const diagnostic = settled ? <FenceDiagnostic raw={raw} /> : null
   return (
     <div ref={ref}>
-      {processDiagnostic !== null && (
-        <div style={FENCE_ERROR_STYLE} role="alert">
-          ⚠️ dsh-ui {processDiagnostic} —— 围栏保持为代码块；请修正后重发。
-        </div>
-      )}
-      {processDiagnostic === null && parseDiagnostic !== null && (
-        <div style={FENCE_ERROR_STYLE} role="alert">
-          ⚠️ dsh-ui fence JSON 解析失败{parseDiagnostic} —— 围栏保持为代码块；请让模型检查并修复 JSON 后重发。
-        </div>
-      )}
-      <CodeBlock key={fenceKey} {...CODE_BLOCK_LABELS} code={`${raw}\n`} lang="dsh-ui" />
+      {diagnostic}
+      <CodeBlock key={fenceKey} {...codeBlockLabels()} code={`${raw}\n`} lang="dsh-ui" />
     </div>
   )
 }
@@ -153,11 +172,12 @@ function FencePanelPublisher({ sessionId, sourceId, order, spec }: {
   return null
 }
 
-/** Process one parsed value and return its canonical repaired spec only when the shared pipeline is error-free. */
+/** Process one parsed value into a renderable spec: the strict pipeline, then
+ *  — when that refuses — a single partial retry that drops the erroring nodes
+ *  and renders what survives (issue #186: one bad node must not take the
+ *  whole fence back to a raw code block). */
 function repairRenderableSpec(value: unknown): GenuiSpec | null {
-  const processed = processGenuiSpec(value)
-  if (!isRenderableProcess(processed)) return null
-  return processed.spec
+  return partialRepairGenuiSpec(processGenuiSpec(value))
 }
 
 /**
@@ -202,7 +222,7 @@ function renderInlineFence(key: Key, context: GenuiFenceContext | undefined, spe
     // Repaired specs render SILENTLY: once the UI renders, no amber note
     // tells the user something was wrong — only an unrecoverable body keeps
     // the red diagnostic.
-    <ErrorBoundary key={JSON.stringify([sessionId, key])} label="该界面">
+    <ErrorBoundary key={JSON.stringify([sessionId, key])} label={t('err.boundary.fence')}>
       <GenuiBlock
         spec={spec}
         animateEntrance={context?.source === undefined}

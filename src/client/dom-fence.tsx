@@ -30,6 +30,10 @@
  *   mount re-renders with the stable source identity — the moment panels
  *   publish and durable state keys in (mirrors the registry channel's
  *   settled-source semantics; streaming renders are identity-less).
+ * - **Visible failure**: a settled block that stays a code block (malformed
+ *   JSON, guard rejection, chart contract) mounts {@link FenceDiagnostic}
+ *   above the stock block. Console-only reporting made the defect invisible to
+ *   the person who wrote the fence (issue #158); the raw body is preserved.
  * - Stable identity: the owning row's `data-chat-anchor-key` (session-stable,
  *   seq-derived) + the fence's ordinal among settled dsh-ui blocks in that
  *   row. `sourceId = dom:<anchor>:<ordinal>` feeds panel dedup and durable
@@ -51,7 +55,8 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
 import css from './GenuiBlock.module.css'
-import { describeGenuiFenceFailure, renderResolvedFenceNode, type GenuiFenceContext } from './fence-render.tsx'
+import { renderSvgFence } from './svg-fence.tsx'
+import { describeFenceFailure, FenceDiagnostic, renderResolvedFenceNode, type GenuiFenceContext } from './fence-render.tsx'
 
 /** Fence surfaces the channel can take over, newest host first: the shared
  * CodeBlock surface every rc.6+ markdown fence renders through
@@ -66,6 +71,8 @@ const PROCESSED = 'data-genui-rendered'
 const STREAMING = '[data-streaming]'
 /** Container class for the plugin-owned root. */
 const CONTAINER_CLASS = 'genui-dom-fence'
+/** Container class for the visible diagnostic of an unrenderable fence. */
+const DIAGNOSTIC_CLASS = 'genui-dom-fence-diagnostic'
 /** Slow sweep interval: the observer catches everything, this is the 1s
  * belt-and-braces pass (history loads, missed attribute batches). */
 const SWEEP_MS = 1000
@@ -137,6 +144,7 @@ interface Mount {
   block: HTMLElement
   lastRaw: string
   lastSettled: boolean
+  language: 'dsh-ui' | 'svg'
   lastNode: ReactNode
   /** True while this mount is the streaming skeleton (no component yet). */
   skeleton: boolean
@@ -155,11 +163,12 @@ function isTextNode(node: Node): node is Text {
  * must not self-identify through a nested block's label either (issue #13:
  * the shared markdown root was mistaken for a dsh-ui fence and hid the whole
  * message, losing every other code block). */
-function infostringOf(block: Element): string | null {
+function infostringOf(block: Element): 'dsh-ui' | 'svg' | null {
   const pre = block.querySelector('pre')
   for (const el of block.querySelectorAll('*')) {
     if (el.childElementCount !== 0) continue
-    if (el.textContent?.trim() !== 'dsh-ui') continue
+    const lang = el.textContent?.trim()
+    if (lang !== 'dsh-ui' && lang !== 'svg') continue
     if (pre !== null && pre.contains(el)) continue
     // A leaf label that belongs to a NESTED known code surface is that
     // surface's banner, not `block`'s own banner. Only accept labels whose
@@ -167,7 +176,7 @@ function infostringOf(block: Element): string | null {
     // stay supported by the structural backstop).
     const owner = el.closest(CODE_BLOCK_SELECTORS)
     if (owner !== null && owner !== block) continue
-    return 'dsh-ui'
+    return lang
   }
   return null
 }
@@ -211,7 +220,7 @@ function isSettled(block: Element): boolean {
 function surfaceOf(pre: HTMLElement, scope: ParentNode = document): HTMLElement | null {
   let el: HTMLElement | null = pre.parentElement
   for (let hops = 0; el !== null && el !== scope && hops < SURFACE_HOPS; hops += 1, el = el.parentElement) {
-    if (infostringOf(el) !== 'dsh-ui') continue
+    if (infostringOf(el) === null) continue
     if (!isPlausibleFenceSurface(el)) return null
     return el
   }
@@ -244,6 +253,7 @@ function findFenceCandidates(scope: ParentNode = document): HTMLElement[] {
     // child of `code-block`): only the outermost matching element is a
     // candidate, so a fence is never double-counted or taken over twice.
     if (el.parentElement !== null && el.parentElement.closest(CODE_BLOCK_SELECTORS) !== null) continue
+    if (el.closest(`.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui-svg-fence]`) !== null) continue
     if (seen.has(el)) continue
     // Message-level containers that happen to carry a surface class must
     // not be taken over: hiding them hides the whole answer (issue #19).
@@ -261,7 +271,7 @@ function findFenceCandidates(scope: ParentNode = document): HTMLElement[] {
     // markdown root holding both a dsh-ui fence and a python block — and
     // the backstop would mislabel that whole container as a fence, hiding
     // every other code block with it (issue #13).
-    if (pre.closest(CODE_BLOCK_SELECTORS) !== null) continue
+    if (pre.closest(`${CODE_BLOCK_SELECTORS}, .${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui-svg-fence]`) !== null) continue
     const surface = surfaceOf(pre, scope)
     if (surface === null) {
       // Diagnose the issue #19 guard: a labeled ancestor that is NOT a code
@@ -340,7 +350,7 @@ function fenceIndexOf(row: Element, block: Element): number {
   let index = 0
   for (const candidate of findFenceCandidates(scope)) {
     if (candidate.closest(STREAMING) !== null) continue
-    if (infostringOf(candidate) === null) continue
+    if (infostringOf(candidate) !== 'dsh-ui') continue
     index += 1
     if (candidate === block) return index
   }
@@ -395,25 +405,10 @@ export function installDomFenceRenderer(
   driftWarned = false
   plausibilityWarned = new WeakSet<Element>()
   const mounts = new Map<HTMLElement, Mount>()
-  const diagnostics = new Map<HTMLElement, HTMLElement>()
-  function clearDiagnostic(block: HTMLElement): void {
-    diagnostics.get(block)?.remove()
-    diagnostics.delete(block)
-  }
-  function showDiagnostic(block: HTMLElement, raw: string): void {
-    const message = describeGenuiFenceFailure(raw) ?? '规格无法渲染'
-    let notice = diagnostics.get(block)
-    if (notice === undefined) {
-      notice = document.createElement('div')
-      notice.className = 'genui-fence-diagnostic'
-      notice.setAttribute('role', 'alert')
-      notice.style.cssText = 'margin:0 0 6px;padding:6px 10px;border:1px solid #ef4444;border-radius:6px;white-space:pre-wrap'
-      diagnostics.set(block, notice)
-    }
-    const text = `⚠️ dsh-ui ${message}。原始内容保留在下方；可调用 validate_dsh_ui 修正。`
-    if (notice.textContent !== text) notice.textContent = text
-    if (notice.nextElementSibling !== block) block.before(notice)
-  }
+  // Blocks we could not render: the stock code block stays visible AND a
+  // visible diagnostic explains why (issue #158). Kept apart from `mounts`
+  // because a diagnosed block is never hidden.
+  const diagnostics = new Map<HTMLElement, { container: HTMLElement; root: Root; raw: string }>()
   let disposed = false
   let rafId: number | null = null
 
@@ -455,6 +450,77 @@ export function installDomFenceRenderer(
     mount.container.remove()
     block.style.display = ''
     block.removeAttribute(PROCESSED)
+    clearDiagnostic(block)
+  }
+
+  /** Drop the diagnostic mounted for one block (renderable again, or gone). */
+  function clearDiagnostic(block: HTMLElement): void {
+    const diagnostic = diagnostics.get(block)
+    if (diagnostic === undefined) return
+    diagnostics.delete(block)
+    try {
+      diagnostic.root.unmount()
+    } catch {
+      // The host's re-render already invalidated the tree; removing the
+      // container below is the recovery.
+    }
+    diagnostic.container.remove()
+  }
+
+  /**
+   * Mount (or refresh) the visible diagnostic that explains why a settled
+   * dsh-ui fence stays a code block. Idempotent per block: the 1s sweep and
+   * every mutation pass re-enter here, and the strip must neither duplicate
+   * nor vanish when the host re-renders its message (issues #158/#172).
+   *
+   * This only ever creates/updates the strip and re-attaches it; it never
+   * re-renders on an empty container, because React commits asynchronously —
+   * a synchronous "it looks wiped" rebuild inside the mutation callback would
+   * re-trigger the observer forever (the sweep owns that recovery).
+   */
+  function renderDiagnostic(block: HTMLElement, raw: string): void {
+    // Nothing to report (renderable, empty, or still streaming): never leave
+    // an empty strip behind, and drop one that is no longer true.
+    if (describeFenceFailure(raw) === null) {
+      clearDiagnostic(block)
+      return
+    }
+    const existing = diagnostics.get(block)
+    if (existing !== undefined) {
+      // A host re-render can detach our container without removing the block:
+      // re-attach before paint; a changed body rebuilds the strip.
+      if (existing.container.parentElement !== block.parentElement || existing.container.nextElementSibling !== block) {
+        block.before(existing.container)
+      }
+      if (existing.raw === raw) return
+      clearDiagnostic(block)
+    }
+    const container = document.createElement('div')
+    container.className = DIAGNOSTIC_CLASS
+    block.before(container)
+    let root: Root
+    try {
+      root = domRootFactory(container)
+      root.render(<FenceDiagnostic raw={raw} />)
+    } catch (error) {
+      container.remove()
+      warnOnce(block, `failed to mount the dsh-ui diagnostic (${error instanceof Error ? error.message : String(error)}); keeping the stock code block visible`)
+      return
+    }
+    diagnostics.set(block, { container, root, raw })
+  }
+
+  /**
+   * Sweep-only recovery for a diagnostic whose DOM the host threw away
+   * without removing the block (a re-render can empty our container). Runs on
+   * the rAF-scheduled sweep, never inside the mutation callback, so a commit
+   * that lands a frame later cannot re-trigger it in a loop.
+   */
+  function rebuildWipedDiagnostic(block: HTMLElement, raw: string): void {
+    const existing = diagnostics.get(block)
+    if (existing === undefined || existing.container.childElementCount > 0) return
+    clearDiagnostic(block)
+    renderDiagnostic(block, raw)
   }
 
   /** One-time-per-block diagnostics: silent returns must be diagnosable
@@ -476,22 +542,27 @@ export function installDomFenceRenderer(
     // streaming the fence is identified by CONTENT — a partial parse that
     // yields a GenUI node. A misidentified fence (e.g. a ```json block that
     // happens to parse) is reverted at the settle transition below.
-    if (settled && infostringOf(block) === null) { clearDiagnostic(block); return }
+    const language = infostringOf(block)
+    if (settled && language === null) return
+    if (!settled && language === 'svg') return
     const raw = rawOf(block)
     if (raw.trim() === '') {
-      if (settled) showDiagnostic(block, raw)
-      if (settled) warnOnce(block, 'settled dsh-ui fence has an empty body; keeping the code block')
+      if (settled) warnOnce(block, `settled ${language ?? 'dsh-ui'} fence has an empty body; keeping the code block`)
       return
     }
     const { key, context } = contextOf(row, block, settled)
-    const node: ReactNode | null = renderResolvedFenceNode(raw, key, context)
-    // Null = no finished component yet (streaming half) or unrepairable:
-    // the stock code block stays visible until something renders. A settled
-    // unrepairable body shows a diagnostic above the unchanged stock block.
+    const node: ReactNode | null = language === 'svg' ? renderSvgFence(raw, key) : renderResolvedFenceNode(raw, key, context)
+    // Null = no finished component yet (streaming half) or unrepairable: the
+    // stock code block stays visible. A settled unrepairable body also gets a
+    // VISIBLE diagnostic — console-only reporting left the defect invisible
+    // to the author (issues #158/#172).
     let payload = node
     if (payload === null) {
       if (settled || !looksLikeGenuiInProgress(raw)) {
-        if (settled) { showDiagnostic(block, raw); warnOnce(block, 'settled dsh-ui fence body does not parse or validate; keeping the code block') }
+        if (settled) {
+          renderDiagnostic(block, raw)
+          warnOnce(block, 'settled dsh-ui fence body does not parse; keeping the code block')
+        }
         return
       }
       // Streaming, spec-shaped, nothing renderable yet: show the skeleton
@@ -533,7 +604,7 @@ export function installDomFenceRenderer(
     }
     block.style.display = 'none'
     block.setAttribute(PROCESSED, '')
-    mounts.set(block, { root, container, block, lastRaw: raw, lastSettled: settled, lastNode: payload, skeleton: node === null })
+    mounts.set(block, { root, container, block, lastRaw: raw, lastSettled: settled, language: language ?? 'dsh-ui', lastNode: payload, skeleton: node === null })
   }
 
   /** Pre-paint repair: the host's React re-renders during streaming can wipe
@@ -541,6 +612,15 @@ export function installDomFenceRenderer(
    * observer microtask (before paint) so raw JSON never flashes between
    * chunks; the rAF sweep re-renders React state at its own pace. */
   function repairSurgery(): void {
+    // Diagnostics are plugin-owned DOM too: a host re-render that detaches or
+    // empties their container must be repaired before paint.
+    for (const [block, diagnostic] of Array.from(diagnostics)) {
+      if (!block.isConnected) {
+        clearDiagnostic(block)
+        continue
+      }
+      renderDiagnostic(block, diagnostic.raw)
+    }
     for (const mount of Array.from(mounts.values())) {
       const block = mount.block
       // The host replaced the row: the stock block is gone but our foreign
@@ -583,9 +663,6 @@ export function installDomFenceRenderer(
    * new dsh-ui block — settled or still streaming. */
   function sweep(): void {
     if (disposed) return
-    for (const block of diagnostics.keys()) {
-      if (!block.isConnected || !isSettled(block)) clearDiagnostic(block)
-    }
     for (const [block, mount] of mounts) {
       if (!block.isConnected) {
         unmountBlock(block)
@@ -593,6 +670,10 @@ export function installDomFenceRenderer(
       }
       const raw = rawOf(block)
       const settled = isSettled(block)
+      if (mount.language === 'svg' && (!settled || infostringOf(block) !== 'svg')) {
+        unmountBlock(block)
+        continue
+      }
       // Settle transition label re-verification: a streaming block was taken
       // over by content, not by label. If the now-visible label exists and is
       // NOT dsh-ui (a ```json fence that happened to parse), restore the
@@ -614,7 +695,7 @@ export function installDomFenceRenderer(
       if (mount.lastRaw !== raw || mount.lastSettled !== settled || contentWiped) {
         const anchor = rowOf(block)
         const { key, context } = contextOf(anchor, block, settled)
-        const node = renderResolvedFenceNode(raw, key, context)
+        const node = mount.language === 'svg' ? renderSvgFence(raw, key) : renderResolvedFenceNode(raw, key, context)
         if (node === null) {
           if (mount.skeleton && !settled) {
             // Still streaming and still incomplete: keep the skeleton mounted
@@ -682,6 +763,26 @@ export function installDomFenceRenderer(
       }
     }
     repairSurgery()
+    // Diagnostics for blocks that are gone or were taken over must go with
+    // them; one whose DOM the host wiped is rebuilt here (sweep cadence, never
+    // inside the mutation callback).
+    for (const [block, diagnostic] of Array.from(diagnostics)) {
+      if (!block.isConnected || block.hasAttribute(PROCESSED)) {
+        clearDiagnostic(block)
+        continue
+      }
+      // Same re-verification the takeover path does: a settled block whose
+      // label is no longer dsh-ui is somebody else's fence, so our explanation
+      // would be about the wrong block.
+      if (isSettled(block)) {
+        const labelText = labelTextOf(block)
+        if (labelText !== '' && labelText !== 'dsh-ui') {
+          clearDiagnostic(block)
+          continue
+        }
+      }
+      rebuildWipedDiagnostic(block, diagnostic.raw)
+    }
     for (const block of findFenceCandidates()) {
       renderBlock(block)
     }
@@ -701,9 +802,17 @@ export function installDomFenceRenderer(
     // The latest removal owns the current tree if several commits were batched.
     for (const record of [...records].reverse()) {
       if (record.removedNodes.length === 0 || record.target.childNodes.length > 0) continue
-      const mount = [...mounts.values()].find(candidate => candidate.container === record.target)
-      if (mount === undefined || !mount.block.isConnected || isPanelRoot(mount.lastNode)) continue
-      mount.container.append(...record.removedNodes)
+      const target = record.target
+      const mount = [...mounts.values()].find(candidate => candidate.container === target)
+      if (mount !== undefined) {
+        if (!mount.block.isConnected || isPanelRoot(mount.lastNode)) continue
+        mount.container.append(...record.removedNodes)
+        continue
+      }
+      // The same surgery for a visible diagnostic the host emptied: re-append
+      // its own nodes instead of leaving the author without an explanation.
+      const diagnostic = [...diagnostics.values()].find(candidate => candidate.container === target)
+      if (diagnostic !== undefined) diagnostic.container.append(...record.removedNodes)
     }
     // Pre-paint pass: surgery repair only (cheap DOM ops); the React
     // re-render goes through the rAF-scheduled sweep.

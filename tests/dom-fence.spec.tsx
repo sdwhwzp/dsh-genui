@@ -91,6 +91,33 @@ afterEach(() => {
 })
 
 describe('installDomFenceRenderer', () => {
+  it('previews only explicitly labelled settled SVG and restores it on dispose', async () => {
+    const raw = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect width="50" height="20"/></svg>'
+    const row = assistantRow('svg-row', true)
+    const block = stockCodeBlock(raw, 'svg')
+    const other = stockCodeBlock(raw, 'xml')
+    row.append(block, other)
+    document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('svg-session', send), send)
+    try {
+      await tick()
+      expect(block.style.display).not.toBe('none')
+      expect(row.querySelector('[data-genui-svg-fence]')).toBeNull()
+      row.removeAttribute('data-streaming')
+      expect(await waitFor(() => row.querySelector('[data-genui-svg-fence] img') !== null)).toBe(true)
+      expect(other.style.display).not.toBe('none')
+      const source = [...row.querySelectorAll('button')].find(button => button.textContent === '源码')!
+      fireEvent.click(source)
+      await tick(100)
+      expect(row.querySelectorAll('[data-genui-svg-fence]')).toHaveLength(1)
+      expect(row.querySelector('[data-genui-svg-fence] pre')?.textContent).toContain(raw)
+      expect(send).not.toHaveBeenCalled()
+    } finally { dispose() }
+    expect(block.style.display).not.toBe('none')
+    expect(row.querySelector('[data-genui-svg-fence]')).toBeNull()
+  })
+
   it('declares its cordis service injects (boot sweep depends on it)', () => {
     // 回归钉：曾丢失 inject 导出 → 宿主 fiber inject waiting 失效 →
     // apply 早于 slots 服务运行 → 整页 "Failed to load plugins"。
@@ -401,6 +428,111 @@ describe('installDomFenceRenderer', () => {
     } finally { dispose() }
     expect(row.querySelector('[role="alert"]')).toBeNull()
     expect(block.style.display).toBe('')
+  })
+
+  it('shows a visible diagnostic for a settled unrepairable body (issue #158)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const row = assistantRow('s10-diag')
+    const block = stockCodeBlock(BROKEN_SPEC, 'dsh-ui')
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-diag', send), send)
+    try {
+      await tick()
+      const alert = row.querySelector('.genui-dom-fence-diagnostic [role="alert"]')
+      expect(alert).not.toBeNull()
+      expect(alert!.textContent).toContain('dsh-ui')
+      // The raw body stays visible: the diagnostic explains, it never replaces.
+      expect(block.style.display).toBe('')
+      expect(block.textContent).toContain('content')
+      // The strip is mounted BEFORE the code block, and repeated sweeps do not
+      // duplicate it.
+      expect(row.querySelector('.genui-dom-fence-diagnostic')!.nextElementSibling).toBe(block)
+      await tick(60)
+      expect(row.querySelectorAll('.genui-dom-fence-diagnostic')).toHaveLength(1)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('keeps the diagnostic off a streaming body (partial JSON is not an error)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const row = assistantRow('s10-stream', true)
+    const block = stockCodeBlock(BROKEN_SPEC, 'dsh-ui')
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-stream', send), send)
+    try {
+      await tick()
+      expect(row.querySelector('.genui-dom-fence-diagnostic')).toBeNull()
+    } finally {
+      dispose()
+    }
+  })
+
+  it('clears the diagnostic once the body becomes renderable', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const row = assistantRow('s10-fixed')
+    const block = stockCodeBlock(BROKEN_SPEC, 'dsh-ui')
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-fixed', send), send)
+    try {
+      await tick()
+      expect(row.querySelector('.genui-dom-fence-diagnostic')).not.toBeNull()
+      // The host re-renders the settled message with a repaired body.
+      block.querySelector('code')!.textContent = VALID_SPEC
+      const mounted = await waitFor(() => row.querySelector('[data-genui]') !== null)
+      expect(mounted).toBe(true)
+      expect(row.querySelector('.genui-dom-fence-diagnostic')).toBeNull()
+      expect(block.style.display).toBe('none')
+    } finally {
+      dispose()
+    }
+  })
+
+  it('rebuilds the diagnostic when a host re-render wipes its container', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const row = assistantRow('s10-wiped')
+    const block = stockCodeBlock(BROKEN_SPEC, 'dsh-ui')
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-wiped', send), send)
+    try {
+      await tick()
+      const container = row.querySelector('.genui-dom-fence-diagnostic')!
+      container.textContent = ''
+      // A mutation in the row drives the pre-paint repair pass.
+      row.setAttribute('data-probe', '1')
+      const restored = await waitFor(() => row.querySelector('.genui-dom-fence-diagnostic [role="alert"]') !== null)
+      expect(restored).toBe(true)
+      expect(row.querySelectorAll('.genui-dom-fence-diagnostic')).toHaveLength(1)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('drops the diagnostic when the block becomes a non-dsh-ui fence', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const row = assistantRow('s10-relabelled')
+    const block = stockCodeBlock(BROKEN_SPEC, 'dsh-ui')
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const send = vi.fn()
+    const dispose = installDomFenceRenderer(makeCtx('sess-relabelled', send), send)
+    try {
+      await tick()
+      expect(row.querySelector('.genui-dom-fence-diagnostic')).not.toBeNull()
+      block.querySelector('div > div')!.textContent = 'json'
+      const gone = await waitFor(() => row.querySelector('.genui-dom-fence-diagnostic') === null)
+      expect(gone).toBe(true)
+    } finally {
+      dispose()
+    }
   })
 
   it('relays component actions through the injected sender', async () => {
