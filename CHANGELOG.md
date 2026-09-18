@@ -5,6 +5,7 @@
 - 合并上游 0.11.1-preview.2 及后续 main（i18n、部分围栏渲染、别名语料、SVG、词云、离散交互）。已保存回复的别名改走上游别名表：`hero.number`、`hero.tone: brand`、`steps[].content`、`keyvalue.items[].label`；`diff` 容器接受 `diff`/`changes`/`content`/`text`、单个记录对象与 unified-diff 字符串，记录字段接受 `file`/`new`/`old` 等别名，缺文件名时以空 `path` 渲染。两个 bundle（宿主校验与浏览器渲染）共用同一份归一化。
 - `/panel` 继续携带 Harness 0.1.6 的命令名与参数分隔符；表格单元格保留安全链接；普通围栏继续直接输出。
 - `callout` 正文别名补入 `message`/`description`；只有 `title` 没正文的 callout 以标题为正文渲染，不再整节点丢弃（线上回复 items[4]/items[6] 被丢导致「declared 10, rendered 8」）。
+- 围栏修复新增「对象属性值与下一行键之间漏逗号」：`insertMissingPropertyCommas` 作为 tier-1/tier-2 的前置扫描（仅对象内、仅跨行、字符串内不处理），线上 `Expected ',' or '}' after property value … (line 4 column 1)` 的围栏在浏览器直接渲染，`validate_dsh_ui` 以 ❌ 附「已自动修复」JSON 回给模型。
 
 ## [Unreleased]
 

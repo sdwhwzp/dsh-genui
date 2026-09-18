@@ -42,6 +42,55 @@ export function describeJsonFailure(raw: string): string | null {
 }
 
 /**
+ * Insert the comma a model dropped between an object property value and the
+ * next key written on a new line (`"a": "x"⏎  "b": …`, the production
+ * "Expected ',' or '}' after property value … (line N column 1)" failure).
+ * Deterministic and narrow: only directly inside an object, only across a
+ * line break, only when the previous non-blank character ends a value and the
+ * next non-blank character opens a key. Arrays and same-line omissions are
+ * left alone. String state is tracked, so a newline inside a string value
+ * never gets a comma.
+ * @param raw - the fence body that failed `JSON.parse`.
+ * @returns the body with the commas inserted and how many were inserted.
+ */
+export function insertMissingPropertyCommas(raw: string): { text: string; repairs: number } {
+  let out = ''
+  const stack: Array<'}' | ']'> = []
+  let inString = false
+  let escaped = false
+  let prev = ''
+  let repairs = 0
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!
+    if (inString) {
+      out += ch
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') { inString = false; prev = ch }
+      continue
+    }
+    if (ch === '"') { inString = true; out += ch; continue }
+    if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']')
+    else if ((ch === '}' || ch === ']') && stack[stack.length - 1] === ch) stack.pop()
+    if (ch === '\n' || ch === '\r') {
+      let j = i + 1
+      while (j < raw.length && (raw[j] === ' ' || raw[j] === '\t' || raw[j] === '\n' || raw[j] === '\r')) j++
+      const valueEnded = prev === '"' || prev === '}' || prev === ']' || /[0-9el]/.test(prev)
+      if (raw[j] === '"' && stack[stack.length - 1] === '}' && valueEnded) {
+        out += ','
+        repairs++
+        prev = ','
+      }
+      out += ch
+      continue
+    }
+    if (ch !== ' ' && ch !== '\t') prev = ch
+    out += ch
+  }
+  return { text: out, repairs }
+}
+
+/**
  * Tier-1 repair — SAFE AT ANY TIME (streaming included): heals the most
  * common model JSON typos that do NOT change the body's structure, and only
  * when the whole body parses afterwards (so a still-growing streaming half
@@ -51,6 +100,8 @@ export function describeJsonFailure(raw: string): string | null {
  *    with ASCII quotes (e.g. `对"别名路径"判定失败`), which makes JSON.parse
  *    fail near that quote with "Expected ',' or ']'...".
  * 2. Trailing commas before `}` / `]` or at end of input.
+ * 3. A missing comma between an object property value and the next key on a
+ *    new line (`insertMissingPropertyCommas`).
  *
  * The state-machine scan walks the raw body tracking string-open state:
  * - inside a string, a quote whose next non-space char is NOT one of `, ] } :`
@@ -68,10 +119,12 @@ export function repairFenceJson(raw: string): { text: string; repairs: number } 
   } catch {
     // fall through to the repair scan
   }
+  const commas = insertMissingPropertyCommas(raw)
+  raw = commas.text
   let out = ''
   let inString = false
   let escaped = false
-  let repairs = 0
+  let repairs = commas.repairs
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i]
     if (escaped) {
@@ -148,11 +201,13 @@ export function completeFenceJson(raw: string): { text: string; repairs: number 
   } catch {
     // fall through to the unified repair scan
   }
+  const commas = insertMissingPropertyCommas(raw)
+  raw = commas.text
   let out = ''
   const stack: Array<'}' | ']'> = []
   let inString = false
   let escaped = false
-  let repairs = 0
+  let repairs = commas.repairs
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i]
     if (escaped) {
