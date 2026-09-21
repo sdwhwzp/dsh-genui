@@ -95,7 +95,7 @@ Prerequisites — all required:
 
 1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`** (dsh-genui 0.11.1-preview.2 is verified on DSH 0.1.6-alpha.1 and the 0.1.2-rc.1 minimum; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
 
-The deployment fork preserves saved reply field aliases (`hero.number`, `hero.tone: brand`, `steps[].content`, `diff` container/record aliases and unified-diff strings), safe links in table cells, and direct fence output. Its `/panel` command includes the command name and argument separator required by Harness 0.1.6; both menu selection and direct Enter remain available.
+The deployment fork preserves saved reply field aliases (`hero.number`, `hero.tone: brand`, `steps[].content`, `diff` container/record aliases and unified-diff strings), safe links in table cells, and direct fence output. Settled fences can combine misplaced table rows with missing property commas; repair retains the following components. Its `/panel` command includes the command name and argument separator required by Harness 0.1.6; both menu selection and direct Enter remain available.
 
 2. **`pnpm` on your PATH**: the `dsh plugin` command depends on it. If missing: `corepack enable` (or `npm i -g pnpm`), then **open a new terminal** and confirm `pnpm -v` prints a version
 

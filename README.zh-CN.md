@@ -95,7 +95,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 
 1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`**（dsh-genui 0.11.1-preview.2 已验证 DSH 0.1.6-alpha.1，并保留 0.1.2-rc.1 下限验证；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
 
-部署 fork 保留已保存回复的字段别名（`hero.number`、`hero.tone: brand`、`steps[].content`、`diff` 容器/记录别名与 unified-diff 字符串）、表格单元格安全链接与围栏直接输出行为。`/panel` 命令包含 Harness 0.1.6 要求的命令名及参数分隔空格，支持从菜单选择和直接回车执行。
+部署 fork 保留已保存回复的字段别名（`hero.number`、`hero.tone: brand`、`steps[].content`、`diff` 容器/记录别名与 unified-diff 字符串）、表格单元格安全链接与围栏直接输出行为。已结束的围栏同时存在表格行错位和属性间缺少逗号时，可以组合修复并保留后续组件。`/panel` 命令包含 Harness 0.1.6 要求的命令名及参数分隔空格，支持从菜单选择和直接回车执行。
 
 2. **`pnpm` 在 PATH 上**：`dsh plugin` 命令依赖它。没有就 `corepack enable`（或 `npm i -g pnpm`），然后**新开一个终端**，确认 `pnpm -v` 有输出
 
