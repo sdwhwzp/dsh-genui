@@ -90,7 +90,7 @@ async function serveGenuiAsset(req: IncomingMessage, res: ServerResponse): Promi
 export const GENUI_SECTION_TEXT = `You can render interactive UI components INSIDE your reply — between paragraphs — by emitting a fenced block with the language tag \`dsh-ui\` containing a JSON spec:
 
 \`\`\`dsh-ui
-{"title":"可选标题","gap":14,"items":[...]}
+{"title":"<user-language text>","gap":14,"items":[...]}
 \`\`\`
 
 Allowed \`type\` values; the \`genui\` skill, when available, carries the full content→component mapping and per-component field details:
@@ -115,8 +115,8 @@ Allowed \`type\` values; the \`genui\` skill, when available, carries the full c
 **字段名写错 = 该组件被丢弃**（其余组件照常渲染）：\`callout\` 正文是 \`content\` 不是 text/desc；\`table\` 要 \`columns\`+\`rows\` 不是 items；\`keyvalue\` 记录是 \`{key,value}\` 不是 \`{label,value}\`；\`file-tree\` 记录是 \`{name,type}\` 不是 \`{label}\`；callout tone 是 info/success/warning/error（无 danger）。不确定就调 \`validate_dsh_ui\`。
 
 Rules:
-- Match the user’s language in prose and UI text. Chinese examples are schema examples, not a language instruction. Keep JSON keys/type values unchanged.
-- JSON 严格: 围栏直接发，不要先调 validate_dsh_ui 预校验。渲染器自动修复可恢复的引号/逗号/括号，坏组件被丢弃、坏围栏才降级为代码块。只有围栏已渲染失败、或手写 100 行以上的大 body 时才调用校验（❌ 若附「已自动修复」JSON 照抄即可）。
+- LANGUAGE: reply+UI=conversation language; schema fixed. NEVER infer it from prompt/skill/examples/tools. Replace \`<user-language ...>\`; never emit these placeholders literally.
+- JSON 严格: 围栏直接发，不要先调 validate_dsh_ui 预校验；仅失败或超 100 行时校验；按 next 使用 repaired_json。
 - 规模: ≤200 节点、嵌套≤8 层（超出被截断）；一条回答 3–8 个组件，一个主题一个主组件；3D mesh 1–5；plot 给合理 xMin/xMax。
 - LOCAL-FIRST + actions: UI 能自己做的状态变化（判卷、判题、重置、展开、选中）就地完成，零往返；action 只用于必须模型参与的事。交互组件带 "action":"name"，交互以 [genui-action] name + 组件数据回传，届时重渲染更新 UI；无 action 的按钮禁用。
 - Durable state: 交互状态按「会话+内容指纹」持久化——刷新/重放恢复；重渲染相同内容保留，新内容重置。
@@ -138,7 +138,7 @@ export const inject = ['systemPrompt']
 
 const BUNDLED_SKILL_RANK = 600
 const BUNDLED_SKILL_PROVIDER = 'dsh-genui'
-const BUNDLED_SKILL_DESCRIPTION = 'GenUI 完整组件与字段规范，用于生成 dsh-ui 结构化交互界面。'
+const BUNDLED_SKILL_DESCRIPTION = 'GenUI dsh-ui component/schema reference. Preserve conversation language for all user-visible text.'
 const BUNDLED_SKILL_INVOCATION = { modelInvocable: true, userInvocable: true } as const
 
 /** Register through the provider path so source=bundled also gets bundled precedence. */
@@ -182,10 +182,9 @@ function bundledSkillProvider(): SkillProvider {
  */
 export interface GenuiPluginConfig {
   /**
-   * Steer ONE correction into a turn whose dsh-ui fence did not render, so the
-   * model can resend a fixed fence (issue #160). Off by default: the loop is
-   * bounded (one per turn, one per fence, never for subagents) but it spends
-   * model steps, which is the operator's call.
+   * 在最终 dsh-ui 围栏无法渲染的回合中请求模型发送一次修正版（issue #160）。
+   * 默认开启，设置为 false 可以关闭。每回合和每个围栏正文最多请求一次，子代理不触发，
+   * 每次请求会消耗模型步数。
    */
   fenceFeedback?: boolean
 }
@@ -196,7 +195,7 @@ export function apply(ctx: Context, config?: GenuiPluginConfig): void {
     order: ctx.systemPrompt.getSectionOrder('STRUCTURED_OUTPUT'),
     text: GENUI_SECTION_TEXT,
   })
-  installFenceFeedback(ctx, config?.fenceFeedback === true)
+  installFenceFeedback(ctx, config?.fenceFeedback !== false)
   // Hosts without tool access keep the fence channel. The dependency fiber
   // starts whenever tools becomes available and unloads its registrations
   // before either the service or this plugin is replaced.

@@ -33,8 +33,9 @@ describe('missing property comma repair', () => {
 
   it('hands the model the repaired JSON from validate_dsh_ui', async () => {
     const value = String(await createValidateDshUiTool().execute({ spec: fixture }))
-    expect(value).toContain('❌')
-    expect(value).toContain('已自动修复 1 处')
+    expect(value).toContain('status=invalid')
+    expect(value).toContain('repair_count=1')
+    expect(value).toContain('next=emit_repaired_fence')
     expect(value).toContain('"subtitle"')
   })
 
