@@ -11,18 +11,22 @@ import { t } from './i18n/index.ts'
 
 /** Chrome labels for an inline GenUI diff block, in the active locale. */
 export function diffBlockLabels(): DiffBlockLabels {
-  return {
+  const labels = {
     copy: t('label.copy'),
     copied: t('label.copied'),
+    codeLabel: t('label.code'),
+    wrapLabel: t('label.wrap'),
+    unwrapLabel: t('label.unwrap'),
     collapseAria: t('label.collapseDiff.aria'),
     /** Accessible label for expanding a collapsed diff tail. */
-    expandAria(hidden) { return t('label.expandDiff.aria', { hidden }) },
+    expandAria(hidden: number) { return t('label.expandDiff.aria', { hidden }) },
     collapse: t('label.collapse'),
     /** Visible label for expanding a collapsed diff tail. */
-    expand(hidden) { return t('label.expandDiff', { hidden }) },
+    expand(hidden: number) { return t('label.expandDiff', { hidden }) },
     /** Localized file-count summary in the diff footer. */
-    files(count) { return t('label.diffFiles', { count }) },
+    files(count: number) { return t('label.diffFiles', { count }) },
   }
+  return labels
 }
 
 /** Copy labels for a code block rendered inside a GenUI fence or node. */

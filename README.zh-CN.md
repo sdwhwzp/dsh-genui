@@ -75,8 +75,11 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 
 - **Registry 通道**：宿主提供 `fence-registry` 扩展点（新版 dsh 构建）时，围栏经宿主流式渲染管线注册，行为与宿主无缝；
 - **DOM 通道**：宿主没有该扩展点（包括支持范围内的原版 DSH 构建）时，插件观察会话 DOM 自行挂载渲染树。自 0.7.2 起**支持流式渲染**：模型写到哪渲染到哪，首个完成的组件立即出现，不用等整段回复写完。自 0.8.3 起围栏发现**多表面兼容**：同时匹配标准 `md-code-block` 表面、部分宿主构建使用的 deepsuite 风格 `.code-block` / `.code-block-small` 表面，并以「label+`<pre>`」结构兜底——任何 banner 标注 `dsh-ui` 且含 `<pre>` 正文的元素都能被识别。即使你的 dsh 构建用了别的类名，围栏照常渲染（控制台会有一条一次性提示说明宿主 DOM 发生漂移）。
+- **DSH 0.1.7 通用代码块**：宿主最终 DOM 没有提供围栏 language metadata 时，dsh-genui 会从公开 ChatSnapshot 读取当前 assistant 的原始 Markdown，并且只接管 `dsh-ui` 围栏。DOM 负责确定挂载位置。source 数据暂时不可用时，assistant 已结束的通用 CodeBlock 才能通过严格的 canonical GenUI 规范校验进入最终兜底。
 
 无论走哪条通道，组件、交互、面板、持久化行为完全一致。
+
+CI 的 packed host smoke 会把实际生成的 npm tarball 安装到真实 DSH 宿主，并验证宿主启动与界面渲染。source-backed 围栏识别由 integration tests 覆盖；该 smoke 不代表真实模型回复验收。真实模型 E2E 需要配置模型凭据。
 
 本仓库已经包含两条渲染通道、服务端插件和浏览器构建产物；宿主仍负责**激活客户端模块**，并提供 `slots` 与 `sessions` 服务。`client.js` 返回 200 或出现在 ModuleLoader 缓存里，只能证明文件下载成功；真正激活后一定会打印 `[genui] client active; fence-channel=registry|dom`。没有这行时应先核对包名/网页配置/宿主激活链，`data-streaming`、`data-chat-anchor-key` 等页面属性只是可选信息，不是安装前提。
 
@@ -93,7 +96,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 
 前置条件，缺一不可：
 
-1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`**（dsh-genui 0.11.1-preview.2 已验证 DSH 0.1.6-alpha.1，并保留 0.1.2-rc.1 下限验证；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
+1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`**（验收宿主标签为 `dsh-v0.1.2-rc.1`、`dsh-v0.1.7-alpha.1` 、`dsh-v0.1.7-alpha.2` 与 `dsh-v0.1.7-rc.1`；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
 
 部署 fork 保留已保存回复的字段别名（`hero.number`、`hero.tone: brand`、`steps[].content`、`diff` 容器/记录别名与 unified-diff 字符串）、表格单元格安全链接与围栏直接输出行为。已结束的围栏同时存在表格行错位和属性间缺少逗号时，可以组合修复并保留后续组件。`/panel` 命令包含 Harness 0.1.6 要求的命令名及参数分隔空格，支持从菜单选择和直接回车执行。
 
@@ -227,7 +230,7 @@ dsh plugin --profile web add link:$PWD
 ## ❓ 常见问题
 
 - **显示成代码块？** 先在浏览器控制台找 `[genui] client active; fence-channel=registry|dom`。没有这行，即使 `client.js` 返回 200，也只是下载了文件、没有激活：请对齐网页配置依赖名、`package.json.name`、`cordis.patch.yml`、ModuleLoader id 和配置中的 bundle 名。出现这行后再查围栏标签/正文；宿主没有 registry 时会自动走 DOM 通道。
-- **渲染 dsh-ui fence 时聊天界面白屏？** 此版 dsh-genui 要求 DSH `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`。
+- **渲染 dsh-ui fence 时聊天界面白屏？** 此版 dsh-genui 要求 DSH `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`。
 - **`dsh: pnpm not found on PATH`？** 装 pnpm 后**新开终端**再试（`corepack enable` 或 `npm i -g pnpm`）。
 - **npm 安装返回 404？** npm 包是公开的，无需登录。先执行 `npm view @changfenhuang/dsh-genui version` 核对包名与公共 registry；若新版本刚发布仍返回 404，稍后重试。
 - **装了但 scene3d/mermaid/echarts 不渲染？** 引擎（mermaid / three / echarts）不再内联进 client.js——它们在首次用到时按需加载（`/plugins/@changfenhuang/dsh-genui/assets/*.js`，插件自带 HTTP 路由托管）。先重启 dsh web + 硬刷新（Cmd+Shift+R）；仍不渲染就卸掉重装（`dsh plugin --profile web remove @changfenhuang/dsh-genui` 后再 add）。旧版宿主缺少资产路由时会降级显示源码/加载失败提示，更新 dsh 即可。
@@ -250,6 +253,8 @@ pnpm run check   # 类型检查 + 全量测试 + 构建
 ```
 
 安装锁定依赖后，检查脚本（`pnpm run check` 或 `npm run check`）使用固定的 DSH `0.1.2-rc.1` 发布包。
+
+`pnpm run check:host-api dsh-v0.1.7-alpha.1` 与 `pnpm run check:host-api dsh-v0.1.7-alpha.2` 会在隔离目录安装对应的 DSH npm 发布包，运行 TypeScript 类型检查与 tsdown 构建。CI 对两个 alpha 版本执行检查，然后运行安装包宿主 smoke 测试。`pnpm run check:host-api dsh-v0.1.7-rc.1` 在同样的隔离目录验证 RC 部署 API。
 
 构建插件与 Harness 后，运行 `GENUI_HARNESS_ROOT=/path/to/deepseek-harness pnpm exec vitest run --config vitest.artifact.config.ts`，使用产物中的浏览器入口重放已保存行程，并通过 Host 工具校验同样的字段。独立产物测试使用该 Harness 已构建的 React 基础组件和系统提示服务。
 

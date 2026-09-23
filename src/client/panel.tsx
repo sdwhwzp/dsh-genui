@@ -25,7 +25,6 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { GenuiBlock } from './GenuiBlock.tsx'
@@ -208,8 +207,10 @@ export function GenuiPanel({ sessionId, sendGenuiAction, insertTemplate }: Genui
           <span className={css.panelBadge}>{t('panel.badge')}</span>
           <span className={css.panelTitle}>{spec?.title ?? t(drawer !== null ? 'panel.title.explore' : 'panel.title.default')}</span>
           <span className={css.panelChevron} aria-hidden>
-            {/* Host-style glyphs (same icon set as the TodoDock header) instead of typed arrows. */}
-            {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}
+            {/* 折叠状态对应的箭头。 */}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d={collapsed ? 'M12 10L8.70711 6.70711C8.31658 6.31658 7.68342 6.31658 7.29289 6.70711L4 10' : 'M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6'} stroke="currentColor" />
+            </svg>
           </span>
         </button>
         {/* Template center (0.9.4): one button — the discovery surface for

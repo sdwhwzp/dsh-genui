@@ -1485,8 +1485,11 @@ export function validateGenuiChartSemantics(value: unknown): string[] {
  * diagnostic for tests and tooling. Unknown `type`s are reported (a plugin
  * custom type is valid only when a renderer is registered — the guard cannot
  * know, so it flags them as warnings).
+ *
+ * @param value - 未经过别名转换的 GenUI 文档。
+ * @returns 完整结构与字段校验结果。
  */
-function validateCanonicalGenuiSpec(value: unknown): GenuiValidation {
+export function validateCanonicalGenuiSpec(value: unknown): GenuiValidation {
   const errors: string[] = []
   const v = obj(value)
   if (v === undefined) return { ok: false, errors: ['spec root must be an object'] }

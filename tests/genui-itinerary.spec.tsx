@@ -78,16 +78,30 @@ describe('itinerary field compatibility', () => {
     const row = document.createElement('div')
     row.setAttribute('data-chat-anchor-key', 'assistant:1')
     row.setAttribute('data-streaming', '')
+    row.setAttribute('data-chat-flow-kind', 'assistant-step')
+    row.setAttribute('data-chat-node-key', 'assistant:1')
     const block = document.createElement('div')
     block.className = 'md-code-block'
     block.innerHTML = '<div><div></div></div><pre><code></code></pre>'
     block.querySelector('code')!.textContent = partial
     row.append(block)
     document.body.append(row)
-    const ctx = { sessions: { list: { getSnapshot: () => ({ current: 'itinerary-session' }) } } } as unknown as Context
+    let markdown = '```dsh-ui\n' + partial
+    const ctx = {
+      sessions: { list: { getSnapshot: () => ({ current: 'itinerary-session' }) } },
+      get: (name: string) => name === 'uiConversation' ? {
+        binding: () => ({ target: () => ({
+          getSnapshot: () => ({ nodes: new Map([['assistant:1', {
+            kind: 'assistant-step', data: { blocks: [{ kind: 'text', text: markdown }] },
+          }]]) }),
+          subscribe: () => () => {},
+        }) }),
+      } : undefined,
+    } as unknown as Context
     const dispose = installDomFenceRenderer(ctx, () => {})
     try {
       await waitFor(() => expect(document.querySelector('.genui-dom-fence')?.textContent).toContain('三天两夜'))
+      markdown = '```dsh-ui\n' + raw + '\n```'
       block.querySelector('code')!.textContent = raw
       block.firstElementChild!.firstElementChild!.textContent = 'dsh-ui'
       row.removeAttribute('data-streaming')

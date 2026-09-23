@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CodeNode, DiffNode, JsonNode } from '../src/client/blocks/advanced.tsx'
 import type { GenuiCode, GenuiDiff, GenuiJson } from '../src/client/spec.ts'
+import { diffBlockLabels } from '../src/client/primitive-labels.ts'
 
 const originalClipboard = navigator.clipboard
 
@@ -12,6 +13,10 @@ afterEach(() => {
 })
 
 describe('GenUI diff labels', () => {
+  it('supplies the shared code toolbar labels', () => {
+    expect(diffBlockLabels()).toMatchObject({ codeLabel: '代码', wrapLabel: '自动换行', unwrapLabel: '取消自动换行' })
+  })
+
   it('renders the rc.1 diff contract with localized copy labels', () => {
     const node: GenuiDiff = {
       type: 'diff',

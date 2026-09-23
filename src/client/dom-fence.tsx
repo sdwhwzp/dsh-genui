@@ -52,12 +52,18 @@ import { Fragment, isValidElement, type Key, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatNode, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
 import css from './GenuiBlock.module.css'
 import { renderSvgFence } from './svg-fence.tsx'
 import { describeFenceFailure, FenceDiagnostic, renderResolvedFenceNode, type GenuiFenceContext } from './fence-render.tsx'
 import { resolveViewedSessionId } from './session-resolver.ts'
+import { validateCanonicalGenuiSpec } from './guard.ts'
+import { diagnoseUnknownGenuiFields } from './genui-runtime/diagnostics.ts'
+import { normalizeGenuiSpec } from './genui-runtime/normalize.ts'
+import { sourceFencesOfAssistant, sourceLanguageAt } from './source-fence.ts'
 
 /** Fence surfaces the channel can take over, newest host first: the shared
  * CodeBlock surface every rc.6+ markdown fence renders through
@@ -182,6 +188,14 @@ function infostringOf(block: Element): 'dsh-ui' | 'svg' | null {
   return null
 }
 
+const GENERIC_CODE_LABELS = new Set(['Code', 'Code block', '代码块'])
+
+/** Read a language that the host still exposes in its CodeBlock banner. */
+function domLanguageOf(block: Element): string | null {
+  const label = labelTextOf(block)
+  return label === '' || GENERIC_CODE_LABELS.has(label) ? null : label
+}
+
 /** The banner label's raw text (empty while streaming — the host renders the
  * language label only once the reply settles). Returns the first leaf
  * outside the code body (banners always lead with the language), so a
@@ -194,6 +208,27 @@ function labelTextOf(block: Element): string {
     return el.textContent?.trim() ?? ''
   }
   return ''
+}
+
+/** 仅在通用 CodeBlock 的完整 JSON 通过现有 GenUI 规范时恢复丢失的围栏语言。
+ *
+ * @param block - 宿主提供的代码块元素。
+ * @param raw - 未修改的围栏正文。
+ * @returns 正文能按原有 GenUI 规范直接识别时返回 true。
+ */
+function isGenericGenuiFence(block: Element, raw: string): boolean {
+  const row = block.closest<HTMLElement>(ASSISTANT_FLOW_ROW)
+  if (row === null || row.dataset.chatGroupPart === 'reasoning') return false
+  if (domLanguageOf(block) !== null || !block.querySelector('[data-code-block-banner]')) return false
+  if (!GENERIC_CODE_LABELS.has(labelTextOf(block))) return false
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    return false
+  }
+  if (!validateCanonicalGenuiSpec(value).ok || diagnoseUnknownGenuiFields(value).length > 0) return false
+  return JSON.stringify(normalizeGenuiSpec(value).value) === JSON.stringify(value)
 }
 
 /** Raw fence body from the stock block's code surface. */
@@ -336,24 +371,167 @@ export function setDomRootFactory(factory: (container: HTMLElement) => Root): vo
  *    `dom:unknown:<ordinal>` (see `fenceIndexOf`/`contextOf`).
  */
 const FLOW_ROW = '[data-chat-flow-key], [data-chat-flow-kind]'
+const ASSISTANT_FLOW_ROW = '[data-chat-flow-kind="assistant-step"]'
 function rowOf(block: Element): Element {
   return block.closest('[data-chat-anchor-key]') ?? block.closest(FLOW_ROW) ?? block
 }
 
-/** 1-based ordinal of this block among settled dsh-ui blocks in its identity
- * scope. Streaming candidates are skipped, so the ordinal stays stable while
- * the block itself is still streaming. Anchor-less rows share the document
- * scope so fences from different messages cannot reuse `dom:unknown:N`. */
-function fenceIndexOf(row: Element, block: Element): number {
-  const scope = row.getAttribute('data-chat-anchor-key') === null ? document : row
+/** Return a stable one-based ordinal among settled GenUI fences in this row. */
+function fenceIndexOf(ctx: Context, row: Element, block: Element, sourceLanguage: (block: Element) => string | null | undefined = candidate => sourceLanguageOf(ctx, candidate)): number {
+  if (!row.matches(ASSISTANT_FLOW_ROW) || row.getAttribute('data-chat-anchor-key') === null) {
+    const scope = row.getAttribute('data-chat-anchor-key') === null ? document : row
+    let fallbackIndex = 0
+    for (const candidate of findFenceCandidates(scope)) {
+      if (candidate.closest(STREAMING) !== null) continue
+      const language = domLanguageOf(candidate) ?? sourceLanguage(candidate)
+      if (language !== 'dsh-ui' && !(language === undefined && isGenericGenuiFence(candidate, rawOf(candidate)))) continue
+      fallbackIndex += 1
+      if (candidate === block) return fallbackIndex
+    }
+    return fallbackIndex + 1
+  }
   let index = 0
-  for (const candidate of findFenceCandidates(scope)) {
+  for (const candidate of hostFenceBlocksOf(row)) {
     if (candidate.closest(STREAMING) !== null) continue
-    if (infostringOf(candidate) !== 'dsh-ui') continue
+    const language = domLanguageOf(candidate) ?? sourceLanguage(candidate)
+    if (language !== 'dsh-ui' && !(language === undefined && isGenericGenuiFence(candidate, rawOf(candidate)))) continue
     index += 1
     if (candidate === block) return index
   }
   return index + 1
+}
+
+/** Return outer host Markdown code surfaces in one assistant row's DOM order. */
+function hostFenceBlocksOf(row: Element): HTMLElement[] {
+  return [...row.querySelectorAll<HTMLElement>(CODE_BLOCK_SELECTORS)].filter(candidate => {
+    if (candidate.parentElement?.closest(CODE_BLOCK_SELECTORS) !== null) return false
+    if (candidate.closest(`.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui], [data-genui-svg-fence]`) !== null) return false
+    if (candidate.closest('[data-chat-group-part="reasoning"], [data-tool], [data-sidebar-chat], [data-sidebar-right-session], [data-sidebar-right-panel], [data-panel-conversation], [data-plugin-panel]') !== null) return false
+    if (candidate.closest(ASSISTANT_FLOW_ROW) !== row) return false
+    return isPlausibleFenceSurface(candidate) && candidate.querySelector('pre') !== null
+  })
+}
+
+/**
+ * Resolve source language for the host code surface at its assistant-row ordinal.
+ *
+ * @param ctx - active plugin context
+ * @param block - host Markdown CodeBlock element
+ * @returns source language, null for an unlabelled fence, or undefined when unavailable
+ */
+export function sourceLanguageOf(ctx: Context, block: Element): string | null | undefined {
+  const row = block.closest<HTMLElement>(`${ASSISTANT_FLOW_ROW}[data-chat-node-key]`)
+  if (row === null || row.dataset.chatGroupPart === 'reasoning') return undefined
+  const nodeKey = row.dataset.chatNodeKey
+  const index = hostFenceIndexOf(row, block)
+  const sessionId = sessionIdOfForSource(ctx)
+  if (!nodeKey || index < 0 || sessionId === undefined) return undefined
+  const chat = chatSourceOf(ctx, sessionId)?.getSnapshot()
+  return sourceLanguageAt(chat, nodeKey, index)
+}
+
+/** Cache each row's Markdown parse for one sweep and retain confirmed opening-line languages per host block. */
+function createSourceLanguageResolver(ctx: Context): { beginSweep: () => void; get: (block: Element) => string | null | undefined } {
+  const stableLanguages = new WeakMap<Element, { sessionId: SessionId; nodeKey: string; language: string | null }>()
+  let sweepLanguages = new Map<Element, string | null | undefined>()
+  let parsedNodes = new Map<string, ReturnType<typeof sourceFencesOfAssistant>>()
+  let sessionId: SessionId | undefined
+  let chat: ChatSnapshot | undefined
+  let chatRead = false
+
+  return {
+    beginSweep() {
+      sweepLanguages = new Map()
+      parsedNodes = new Map()
+      sessionId = undefined
+      chat = undefined
+      chatRead = false
+    },
+    get(block) {
+      if (sweepLanguages.has(block)) return sweepLanguages.get(block)
+      const row = block.closest<HTMLElement>(`${ASSISTANT_FLOW_ROW}[data-chat-node-key]`)
+      if (row === null || row.dataset.chatGroupPart === 'reasoning') return undefined
+      const nodeKey = row.dataset.chatNodeKey
+      const activeSessionId = sessionIdOfForSource(ctx)
+      if (!nodeKey || activeSessionId === undefined) return undefined
+
+      const stable = stableLanguages.get(block)
+      if (stable?.sessionId === activeSessionId && stable.nodeKey === nodeKey) {
+        sweepLanguages.set(block, stable.language)
+        return stable.language
+      }
+      if (!chatRead || sessionId !== activeSessionId) {
+        sessionId = activeSessionId
+        chat = chatSourceOf(ctx, activeSessionId)?.getSnapshot()
+        chatRead = true
+      }
+      const node = chat?.nodes.get(nodeKey)
+      if (node?.kind !== 'assistant-step') return undefined
+      const assistantNode = node as ChatNode<'assistant-step'>
+      let fences = parsedNodes.get(nodeKey)
+      if (fences === undefined) {
+        fences = sourceFencesOfAssistant(assistantNode.data.blocks)
+        parsedNodes.set(nodeKey, fences)
+      }
+      const index = hostFenceIndexOf(row, block)
+      if (index < 0) return undefined
+      const fence = fences[index]
+      const language = fence?.lang
+      if (fence !== undefined && fence.openingLineComplete) {
+        stableLanguages.set(block, { sessionId: activeSessionId, nodeKey, language: fence.lang })
+      }
+      sweepLanguages.set(block, language)
+      return language
+    },
+  }
+}
+
+/**
+ * Resolve a host CodeBlock's zero-based ordinal among assistant Markdown surfaces.
+ *
+ * @param row - owning assistant row
+ * @param block - host Markdown CodeBlock element
+ * @returns source-order ordinal or -1 when the element is not a host code surface
+ */
+export function hostFenceIndexOf(row: Element, block: Element): number {
+  return hostFenceBlocksOf(row).indexOf(block as HTMLElement)
+}
+
+/** Read the currently viewed session for source Markdown lookup. */
+function sessionIdOfForSource(ctx: Context): SessionId | undefined {
+  return resolveViewedSessionId(ctx.sessions.list.getSnapshot())
+}
+
+/** Read uiConversation as an optional service so Cordis does not require a hard inject. */
+function uiConversationOf(ctx: Context): Context['uiConversation'] | undefined {
+  if (typeof ctx.get !== 'function') return undefined
+  return ctx.get('uiConversation', false) as Context['uiConversation'] | undefined
+}
+
+/** Read the current ChatSnapshot source without interrupting sweeps during session transitions. */
+function chatSourceOf(ctx: Context, sessionId: SessionId): { getSnapshot: () => ChatSnapshot | undefined; subscribe: (listener: () => void) => (() => void) | undefined } | undefined {
+  try {
+    const source = uiConversationOf(ctx)?.binding(sessionId).target('chat')
+    if (source === undefined) return undefined
+    return {
+      getSnapshot: () => {
+        try {
+          return source.getSnapshot()
+        } catch {
+          return undefined
+        }
+      },
+      subscribe: listener => {
+        try {
+          return source.subscribe(listener)
+        } catch {
+          return undefined
+        }
+      },
+    }
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -410,12 +588,27 @@ export function installDomFenceRenderer(
   const diagnostics = new Map<HTMLElement, { container: HTMLElement; root: Root; raw: string }>()
   let disposed = false
   let rafId: number | null = null
+  let activeChatSession: SessionId | undefined
+  let unsubscribeChat: (() => void) | undefined
+  const sourceLanguages = createSourceLanguageResolver(ctx)
 
   const sessionIdOf = (): SessionId | undefined => {
     try {
       return resolveViewedSessionId(ctx.sessions.list.getSnapshot())
     } catch {
       return undefined
+    }
+  }
+
+  /** Retry ChatSnapshot subscription while the active session binding is unavailable. */
+  function syncChatSubscription(sessionId: SessionId | undefined): void {
+    if (sessionId !== activeChatSession) {
+      unsubscribeChat?.()
+      unsubscribeChat = undefined
+      activeChatSession = sessionId
+    }
+    if (sessionId !== undefined && unsubscribeChat === undefined) {
+      unsubscribeChat = chatSourceOf(ctx, sessionId)?.subscribe(schedule)
     }
   }
 
@@ -430,7 +623,7 @@ export function installDomFenceRenderer(
       // per block so the degraded path is visible in the console.
       warnOnce(block, 'no [data-chat-anchor-key] ancestor for a dsh-ui fence (host render path without row anchor — e.g. Safari); using fallback identity dom:unknown:N')
     }
-    const fenceIndex = fenceIndexOf(row, block)
+    const fenceIndex = fenceIndexOf(ctx, row, block, sourceLanguages.get)
     const anchorKey = row.getAttribute('data-chat-anchor-key') ?? 'unknown'
     const key = `dom:${anchorKey}:${fenceIndex}` as Key
     const sessionId = sessionIdOf()
@@ -551,22 +744,22 @@ export function installDomFenceRenderer(
     if (block.hasAttribute(PROCESSED)) return
     const row = rowOf(block)
     const settled = isSettled(block)
-    // Settled blocks must carry the dsh-ui label. Streaming blocks cannot:
-    // the host renders the language label only once the reply settles
-    // (MarkdownText passes `lang={streaming ? undefined : lang}`), so during
-    // streaming the fence is identified by CONTENT — a partial parse that
-    // yields a GenUI node. A misidentified fence (e.g. a ```json block that
-    // happens to parse) is reverted at the settle transition below.
-    const language = infostringOf(block)
-    if (settled && language === null) return
-    if (!settled && language === 'svg') return
+    const domLanguage = domLanguageOf(block)
+    const sourceLanguage = domLanguage === null ? sourceLanguages.get(block) : undefined
+    const language = domLanguage ?? sourceLanguage
     const raw = rawOf(block)
+    // DSH 0.1.7-alpha.2 会在最终 DOM 隐去不支持高亮的语言；公开 ChatSnapshot 的原始 Markdown 是 language 来源。
+    // 内容识别只在 source 暂不可用且 assistant 已结束时兜底，不覆盖已确认的 language 或无 language fence。
+    const genericGenui = language === undefined && settled && isGenericGenuiFence(block, raw)
+    if (language !== 'dsh-ui' && language !== 'svg' && !genericGenui) return
+    if (!settled && language !== 'dsh-ui') return
     if (raw.trim() === '') {
       if (settled) warnOnce(block, `settled ${language ?? 'dsh-ui'} fence has an empty body; keeping the code block`)
       return
     }
     const { key, context } = contextOf(row, block, settled)
-    const node: ReactNode | null = language === 'svg' ? renderSvgFence(raw, key) : renderResolvedFenceNode(raw, key, context)
+    const acceptedLanguage = language === 'svg' ? 'svg' : 'dsh-ui'
+    const node: ReactNode | null = acceptedLanguage === 'svg' ? renderSvgFence(raw, key) : renderResolvedFenceNode(raw, key, context)
     // Null = no finished component yet (streaming half) or unrepairable: the
     // stock code block stays visible. A settled unrepairable body also gets a
     // VISIBLE diagnostic — console-only reporting left the defect invisible
@@ -615,7 +808,7 @@ export function installDomFenceRenderer(
     }
     block.style.display = 'none'
     block.setAttribute(PROCESSED, '')
-    mounts.set(block, { root, container, block, lastRaw: raw, lastSettled: settled, language: language ?? 'dsh-ui', lastNode: payload, skeleton: node === null })
+    mounts.set(block, { root, container, block, lastRaw: raw, lastSettled: settled, language: acceptedLanguage, lastNode: payload, skeleton: node === null })
   }
 
   /** Pre-paint repair: the host's React re-renders during streaming can wipe
@@ -674,6 +867,9 @@ export function installDomFenceRenderer(
    * new dsh-ui block — settled or still streaming. */
   function sweep(): void {
     if (disposed) return
+    sourceLanguages.beginSweep()
+    const sessionId = sessionIdOf()
+    syncChatSubscription(sessionId)
     for (const [block, mount] of mounts) {
       if (!block.isConnected) {
         unmountBlock(block)
@@ -681,22 +877,18 @@ export function installDomFenceRenderer(
       }
       const raw = rawOf(block)
       const settled = isSettled(block)
-      if (mount.language === 'svg' && (!settled || infostringOf(block) !== 'svg')) {
+      const domLanguage = domLanguageOf(block)
+      const sourceLanguage = domLanguage === null ? sourceLanguages.get(block) : undefined
+      const language = domLanguage ?? sourceLanguage
+      const validGenui = language === 'dsh-ui'
+        || (language === undefined && settled && isGenericGenuiFence(block, raw))
+      if (mount.language === 'svg' && language !== 'svg') {
         unmountBlock(block)
         continue
       }
-      // Settle transition label re-verification: a streaming block was taken
-      // over by content, not by label. If the now-visible label exists and is
-      // NOT dsh-ui (a ```json fence that happened to parse), restore the
-      // stock block and drop the mount.
-      if (settled && !mount.lastSettled) {
-        const labelText = labelTextOf(block)
-        if (labelText !== '' && labelText !== 'dsh-ui') {
-          // A content-identified fence settled as another language (e.g. a
-          // ```json block that happened to parse): restore the stock block.
-          unmountBlock(block)
-          continue
-        }
+      if (mount.language === 'dsh-ui' && !validGenui) {
+        unmountBlock(block)
+        continue
       }
       // A host re-render can also wipe the CONTENT of our container while
       // leaving the node in place. An inline mount whose container came back
@@ -780,8 +972,9 @@ export function installDomFenceRenderer(
       // label is no longer dsh-ui is somebody else's fence, so our explanation
       // would be about the wrong block.
       if (isSettled(block)) {
-        const labelText = labelTextOf(block)
-        if (labelText !== '' && labelText !== 'dsh-ui') {
+        const domLanguage = domLanguageOf(block)
+        const sourceLanguage = domLanguage === null ? sourceLanguages.get(block) : undefined
+        if ((domLanguage ?? sourceLanguage) !== 'dsh-ui') {
           clearDiagnostic(block)
           continue
         }
@@ -801,6 +994,10 @@ export function installDomFenceRenderer(
       sweep()
     })
   }
+
+  const unsubscribeSessions = typeof ctx.sessions.list.subscribe === 'function'
+    ? ctx.sessions.list.subscribe(schedule)
+    : undefined
 
   const observer = new MutationObserver(records => {
     // Restore detached roots before paint, retaining input and pending actions.
@@ -839,6 +1036,9 @@ export function installDomFenceRenderer(
   return () => {
     disposed = true
     observer.disconnect()
+    unsubscribeSessions?.()
+    unsubscribeChat?.()
+    unsubscribeChat = undefined
     window.clearInterval(interval)
     if (rafId !== null) {
       cancelAnimationFrame(rafId)

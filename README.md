@@ -75,8 +75,11 @@ The plugin ships **two rendering channels** and picks one automatically after th
 
 - **Registry channel**: when the host exposes the `fence-registry` extension point (newer dsh builds), fences register through the host's streaming render pipeline and behave seamlessly with the host;
 - **DOM channel**: when the host lacks that extension point (including supported stock DSH builds), the plugin observes the session DOM and mounts its own render tree. Since 0.7.2 it **supports streaming rendering**: components appear as the model writes them — the first finished component shows up immediately, no need to wait for the whole reply. Since 0.8.3 fence discovery is **multi-surface**: it matches the stock `md-code-block` surface, the deepsuite-style `.code-block` / `.code-block-small` surfaces some host builds render instead, and — as a structural backstop — any element whose banner labels it `dsh-ui` and contains a `<pre>` body. If your dsh build renders fences with a different class name, they still render (and a one-time console warning tells you the host DOM drifted).
+- **DSH 0.1.7 generic code banner**: when the host's final DOM omits fenced-code language metadata, dsh-genui reads the current assistant's original Markdown from the public ChatSnapshot and only takes over `dsh-ui` fences. The DOM identifies the mount location. If source data is temporarily unavailable, a settled assistant CodeBlock can use the strict canonical GenUI validation as a final fallback.
 
 Whichever channel is active, components, interactions, panels, and persistence behave identically.
+
+CI's packed host smoke installs the generated npm tarball in a real DSH host and verifies host startup and rendering. Source-backed fence routing is covered by integration tests; the smoke does not claim to validate a real model response. Real-model E2E requires configured model credentials.
 
 The repository ships both renderer channels, the host plugin, and the built browser bundle. The host still owns **client activation** and must provide the `slots` and `sessions` services. A downloaded `client.js` or a ModuleLoader cache entry proves only that bytes arrived — successful activation always prints `[genui] client active; fence-channel=registry|dom`. If that line is absent, fix package/profile identity or host activation first; DOM attributes such as `data-streaming` and `data-chat-anchor-key` are optional fallbacks, not installation prerequisites.
 
@@ -93,7 +96,7 @@ The repository ships both renderer channels, the host plugin, and the built brow
 
 Prerequisites — all required:
 
-1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`** (dsh-genui 0.11.1-preview.2 is verified on DSH 0.1.6-alpha.1 and the 0.1.2-rc.1 minimum; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
+1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`** (verified host tags: `dsh-v0.1.2-rc.1`, `dsh-v0.1.7-alpha.1`, `dsh-v0.1.7-alpha.2`, and `dsh-v0.1.7-rc.1`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
 
 The deployment fork preserves saved reply field aliases (`hero.number`, `hero.tone: brand`, `steps[].content`, `diff` container/record aliases and unified-diff strings), safe links in table cells, and direct fence output. Settled fences can combine misplaced table rows with missing property commas; repair retains the following components. Its `/panel` command includes the command name and argument separator required by Harness 0.1.6; both menu selection and direct Enter remain available.
 
@@ -221,7 +224,7 @@ The core render package stays light (≈110 KB min / 28 KB gzip); the mermaid, t
 ## ❓ FAQ
 
 - **Rendering as a code block?** First check the browser console for `[genui] client active; fence-channel=registry|dom`. If absent, the client bundle was not activated even if its URL returns 200 — align the profile dependency, `package.json.name`, `cordis.patch.yml`, ModuleLoader id, and configured bundle name. If present, inspect the fence label/body; registry-less hosts automatically use the DOM channel.
-- **Chat UI goes blank when rendering a dsh-ui fence?** This dsh-genui release requires DSH `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`.
+- **Chat UI goes blank when rendering a dsh-ui fence?** This dsh-genui release requires DSH `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`.
 - **`dsh: pnpm not found on PATH`?** Install pnpm, then **open a new terminal** and retry (`corepack enable` or `npm i -g pnpm`).
 - **npm install returns 404?** The npm package is public and requires no login. Run `npm view @changfenhuang/dsh-genui version` to verify the package name and public registry; if a newly published version still returns 404, retry shortly.
 - **Installed but scene3d/mermaid/echarts don't render?** The engines (mermaid / three / echarts) are no longer inlined in client.js — they load on demand the first time they're used (`/plugins/@changfenhuang/dsh-genui/assets/*.js`, hosted by the plugin's own HTTP routes). First restart dsh web + hard refresh (Cmd+Shift+R); still broken, remove and reinstall (`dsh plugin --profile web remove @changfenhuang/dsh-genui`, then add again). Hosts without the asset routes degrade to source/load-error hints — update dsh.
@@ -236,6 +239,8 @@ pnpm run check   # type check + full tests + build
 ```
 
 With the locked dependencies installed, the check script (`pnpm run check` or `npm run check`) uses the pinned DSH `0.1.2-rc.1` release packages.
+
+`pnpm run check:host-api dsh-v0.1.7-alpha.1` and `pnpm run check:host-api dsh-v0.1.7-alpha.2` install the corresponding published DSH packages in an isolated workspace and run TypeScript typecheck plus tsdown build. CI runs both alpha checks before packed host smoke tests. `pnpm run check:host-api dsh-v0.1.7-rc.1` validates the RC deployment API in the same isolated workspace.
 
 After building the plugin and a Harness checkout, run `GENUI_HARNESS_ROOT=/path/to/deepseek-harness pnpm exec vitest run --config vitest.artifact.config.ts` to render a saved itinerary through the emitted browser entry and validate the same fields through the emitted Host tools. This separate artifact lane uses that checkout’s built React primitives and system-prompt service.
 
