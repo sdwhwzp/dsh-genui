@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.11.1-preview.3-dsh.20260924.3] - 2026-09-24
+
+- 柱状图按每个分类中原始数值的小数精度显示合计，覆盖横向、纵向、分组和堆叠模式的标签与提示框，避免 `0.1 + 0.2` 显示为 `0.30000000000000004`。保留高精度输入与大整数。
+
 ## [0.11.1-preview.2-dsh.20260918.1] - 2026-09-18
 
 - 合并上游 0.11.1-preview.2 及后续 main（i18n、部分围栏渲染、别名语料、SVG、词云、离散交互）。已保存回复的别名改走上游别名表：`hero.number`、`hero.tone: brand`、`steps[].content`、`keyvalue.items[].label`；`diff` 容器接受 `diff`/`changes`/`content`/`text`、单个记录对象与 unified-diff 字符串，记录字段接受 `file`/`new`/`old` 等别名，缺文件名时以空 `path` 渲染。两个 bundle（宿主校验与浏览器渲染）共用同一份归一化。

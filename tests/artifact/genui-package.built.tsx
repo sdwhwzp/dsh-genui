@@ -77,6 +77,22 @@ describe('published entries with Harness primitives', () => {
     expect(document.querySelector('pre')).toBeNull()
   })
 
+  it('renders precise category totals and hover details through the emitted browser code', () => {
+    const entry = browserEntry()
+    const raw = JSON.stringify({ items: [{ type: 'chart', data: [], horizontal: true, stacked: true,
+      series: [
+        { label: 'A', data: [{ label: 'Q1', value: 0.1 }, { label: 'Q2', value: 1.234 }] },
+        { label: 'B', data: [{ label: 'Q1', value: 0.2 }, { label: 'Q2', value: 2.2 }] },
+      ],
+    }] })
+    const view = render(<div>{entry.renderGenuiFence(raw, 'chart-totals')}</div>)
+    expect([...view.container.querySelectorAll('[class*="hbarValue"]')].map(node => node.textContent)).toEqual(['0.3', '3.434'])
+    expect(view.container.querySelector('[class*="hbarTrack"][title]')?.getAttribute('title')).toBe('Q1: 0.3')
+    fireEvent.mouseEnter(view.container.querySelector('[class*="hbarSeg"]')!)
+    expect(view.container.querySelector('[class*="chartTip"]')?.textContent).toContain('0.3')
+    expect(view.container.textContent).not.toContain('0.30000000000000004')
+  })
+
   it('validates the same saved itinerary through the emitted Host tools', async () => {
     const ctx = new cordis.Context()
     const registered = new Map<string, { name: string; execute(args: unknown): Promise<unknown> }>()

@@ -164,6 +164,7 @@ The following is the detailed capability reference. Every behavior is constraine
 
 - **Answer-as-UI**: components are embedded in the reply and appear as they stream — no waiting for the whole message
 - **30+ components**: cards, tables, charts, forms, tabs, accordions, file trees, timelines, diffs…
+- **Chart totals**: grouped and stacked bar labels and tooltips use each category’s input decimal precision, so `0.1 + 0.2` displays as `0.3` while precise inputs retain their digits.
 - **Native media**: audio and video play inline from browser-reachable http(s) or same-origin relative URLs, with user-controlled playback, video posters/aspect ratios, and visible failure states
 - **ECharts integration**: the `echart` node renders full ECharts charts with theme-aware colors, tooltips, and legends. Two modes: **preset shorthand** (`preset: 'bar' | 'line' | 'area' | 'pie' | 'scatter'` + `data`/`series`) for quick upgrade from the `chart` node, or **full option** (`option` field) for custom chart types, dataZoom, visualMap, and other advanced ECharts features. The echarts engine (~1 MB) is lazy-loaded on demand — the main bundle never carries it, and conversations without `echart` nodes never download it- **Function plots**: `plot` draws curves; parameter sliders redraw in real time, with optional auto-animation
 
