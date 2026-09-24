@@ -226,7 +226,8 @@ describe('the steered correction message', () => {
     const message = createFeedbackMessage(text)
     expect(message.role).toBe('user')
     expect(typeof message.id).toBe('string')
-    expect(message.source).toMatchObject({ kind: 'plugin', plugin: FEEDBACK_PLUGIN_NAME, form: 'notice' })
+    expect(message.source).toMatchObject({ kind: `plugin:${FEEDBACK_PLUGIN_NAME}`, form: 'notice' })
+    expect(message.source).not.toHaveProperty('plugin')
     expect(Object.isFrozen(message)).toBe(true)
     // No triple backticks: the notice renders as markdown in the transcript.
     expect(text).not.toContain('```')
@@ -253,8 +254,8 @@ describe('installFenceFeedback wiring', () => {
     h.emitSession(assistantEvent(reply(BROKEN)))
     h.boundary({ agent: { session: { id: 'sess-1', header: { id: 'sess-1' } }, steer: h.steer }, turn: 4, signal: new AbortController().signal })
     expect(h.steer).toHaveBeenCalledTimes(1)
-    const message = h.steer.mock.calls[0]![0] as { source: { plugin: string } }
-    expect(message.source.plugin).toBe(FEEDBACK_PLUGIN_NAME)
+    const message = h.steer.mock.calls[0]![0] as { source: { kind: string } }
+    expect(message.source.kind).toBe(`plugin:${FEEDBACK_PLUGIN_NAME}`)
     // A second boundary of the same turn must not steer again.
     h.boundary({ agent: { session: { id: 'sess-1', header: { id: 'sess-1' } }, steer: h.steer }, turn: 4, signal: new AbortController().signal })
     expect(h.steer).toHaveBeenCalledTimes(1)
@@ -289,7 +290,7 @@ describe('installFenceFeedback wiring', () => {
       time: 1,
       data: {
         content: [{ type: 'text', text: fenceCorrectionText(failures) }],
-        source: { kind: 'plugin', plugin: FEEDBACK_PLUGIN_NAME, form: 'notice', summary: 'x' },
+        source: { kind: `plugin:${FEEDBACK_PLUGIN_NAME}`, form: 'notice', summary: 'x' },
       },
     } as unknown as SessionEvent)
     h.emitSession(assistantEvent(reply(BROKEN)))

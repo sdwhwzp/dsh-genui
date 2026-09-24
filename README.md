@@ -1,5 +1,7 @@
 # 🎨 dsh-genui
 
+Fence-repair notices use `plugin:@changfenhuang/dsh-genui` for Session V4 writes; replay recognizes both this source and the legacy plugin wrapper to prevent duplicate corrections.
+
 <div align="center">
 
 **English** · [简体中文](./README.zh-CN.md)

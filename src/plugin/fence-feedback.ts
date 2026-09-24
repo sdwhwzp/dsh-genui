@@ -155,8 +155,7 @@ export function createFeedbackMessage(text: string): UserMessage {
     role: 'user',
     content: [{ type: 'text', text }],
     source: {
-      kind: 'plugin',
-      plugin: FEEDBACK_PLUGIN_NAME,
+      kind: `plugin:${FEEDBACK_PLUGIN_NAME}`,
       form: 'notice',
       summary: 'genui fence repair requested',
     },
@@ -280,7 +279,7 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     }
     if (event.type !== 'user/message') return
     const data = event.data as { content?: unknown; source?: { kind?: unknown; plugin?: unknown } }
-    if (data.source?.kind === 'plugin' && data.source.plugin === FEEDBACK_PLUGIN_NAME) {
+    if (data.source?.kind === `plugin:${FEEDBACK_PLUGIN_NAME}` || (data.source?.kind === 'plugin' && data.source.plugin === FEEDBACK_PLUGIN_NAME)) {
       // Our own correction (re-observed after a plugin reload): adopt its
       // fingerprints so a second boundary cannot repeat it.
       const fingerprints = markersIn(textOfContent(data.content))

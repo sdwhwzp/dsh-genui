@@ -1,5 +1,7 @@
 # 🎨 dsh-genui
 
+围栏修正通知使用 `plugin:@changfenhuang/dsh-genui` 写入会话 V4；重放同时识别新来源和旧插件包装，避免重复修正。
+
 <div align="center">
 
 [English](./README.md) · **简体中文**
