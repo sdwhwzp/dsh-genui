@@ -1,7 +1,7 @@
 {
   "name": "@changfenhuang/dsh-genui",
-  "description": "GenUI for DeepSeek Harness: interactive UI components rendered inline in assistant replies via the ```dsh-ui fence — layout, charts, plots, forms, quizzes, mermaid, 3D scenes, and an action event loop back to the model. Ships the fence-teaching host plugin, the browser renderer (client half), and the genui skill.",
-  "version": "0.11.1-preview.3-dsh.20260924.3",
+  "description": "GenUI for DeepSeek Harness: interactive UI components rendered inline in assistant replies via the ```dsh-ui fence \u2014 layout, charts, plots, forms, quizzes, mermaid, 3D scenes, and an action event loop back to the model. Ships the fence-teaching host plugin, the browser renderer (client half), and the genui skill.",
+  "version": "0.11.2-preview.1-dsh.20260926.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/plugin/index.d.ts",
@@ -24,6 +24,7 @@
     "./assets/three": "./src/client/asset-three.ts",
     "./assets/echarts-core": "./src/client/asset-echarts-core.ts",
     "./assets/echarts": "./src/client/asset-echarts.ts",
+    "./assets/standalone": "./lib/assets/standalone-runtime.js",
     "./skill": "./SKILL.md"
   },
   "files": [
@@ -175,7 +176,7 @@
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.json && tsdown",
     "test": "vitest run",
-    "check": "node scripts/clean.mjs && tsc -p tsconfig.json && vitest run && tsdown",
+    "check": "node scripts/clean.mjs && tsc -p tsconfig.json && vitest run && tsdown && node scripts/check-standalone.mjs",
     "check:host-api": "node scripts/check-host-api.mjs",
     "prepack": "node scripts/prepack.mjs"
   },

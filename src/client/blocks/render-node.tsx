@@ -5,7 +5,7 @@
  * @module @changfenhuang/dsh-genui/client/blocks/render-node
  */
 import { type ComponentType, type ReactNode, useEffect, useState, type CSSProperties } from 'react'
-import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
+import * as primitives from '../primitive-adapter.ts'
 import css from '../GenuiBlock.module.css'
 import { GENUI_LIMITS } from '../genui-runtime/index.ts'
 import { renderInline } from '../inline.ts'

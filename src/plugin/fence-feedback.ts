@@ -33,6 +33,8 @@ import { resolveFence } from '../shared/fence-resolve.ts'
 
 /** Plugin name recorded on every message this loop steers. */
 export const FEEDBACK_PLUGIN_NAME = '@changfenhuang/dsh-genui'
+/** Source kind persisted by this plugin in Session format v4. */
+export const FEEDBACK_SOURCE_KIND = `plugin:${FEEDBACK_PLUGIN_NAME}` as const
 
 /** Marker prefix inside the correction text: `[genui-fence-repair #<fingerprint>]`. */
 const MARKER_PREFIX = '[genui-fence-repair #'
@@ -147,18 +149,27 @@ export function fenceCorrectionText(failures: readonly FenceFailure[]): string {
  * copy resolves identically on every host.
  *
  * @param text - the correction text.
+ * @param sessionFormatVersion - the format recorded by the active session.
  * @returns a frozen user message attributed to this plugin as a notice.
  */
-export function createFeedbackMessage(text: string): UserMessage {
+export function createFeedbackMessage(text: string, sessionFormatVersion: number): UserMessage {
+  const source = sessionFormatVersion >= 4
+    ? {
+        kind: FEEDBACK_SOURCE_KIND,
+        form: 'notice' as const,
+        summary: 'genui fence repair requested',
+      }
+    : {
+        kind: 'plugin' as const,
+        plugin: FEEDBACK_PLUGIN_NAME,
+        form: 'notice' as const,
+        summary: 'genui fence repair requested',
+      }
   const message = {
     id: randomUUID(),
     role: 'user',
     content: [{ type: 'text', text }],
-    source: {
-      kind: `plugin:${FEEDBACK_PLUGIN_NAME}`,
-      form: 'notice',
-      summary: 'genui fence repair requested',
-    },
+    source,
   }
   Object.freeze(message.content)
   return Object.freeze(message) as unknown as UserMessage
@@ -243,6 +254,12 @@ function markersIn(text: string): string[] {
   return out
 }
 
+/** Identify this plugin's source across current and migrated session shapes. */
+function isFeedbackSource(source: { kind?: unknown; plugin?: unknown } | undefined): boolean {
+  return source?.kind === FEEDBACK_SOURCE_KIND
+    || (source?.kind === 'plugin' && source.plugin === FEEDBACK_PLUGIN_NAME)
+}
+
 /**
  * 根据插件配置启用围栏反馈流程。
  *
@@ -279,7 +296,7 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     }
     if (event.type !== 'user/message') return
     const data = event.data as { content?: unknown; source?: { kind?: unknown; plugin?: unknown } }
-    if (data.source?.kind === `plugin:${FEEDBACK_PLUGIN_NAME}` || (data.source?.kind === 'plugin' && data.source.plugin === FEEDBACK_PLUGIN_NAME)) {
+    if (isFeedbackSource(data.source)) {
       // Our own correction (re-observed after a plugin reload): adopt its
       // fingerprints so a second boundary cannot repeat it.
       const fingerprints = markersIn(textOfContent(data.content))
@@ -311,7 +328,7 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     for (const fingerprint of plan.fingerprints) state.corrected.add(fingerprint)
     state.lastCorrectedTurn = plan.turn
     try {
-      agent.steer(createFeedbackMessage(plan.text))
+      agent.steer(createFeedbackMessage(plan.text, agent.session.header.version))
     } catch (error) {
       ctx.logger?.warn?.(`dsh-genui: fence feedback steering failed (${error instanceof Error ? error.message : String(error)})`)
     }

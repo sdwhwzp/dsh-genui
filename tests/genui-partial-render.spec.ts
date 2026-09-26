@@ -4,7 +4,7 @@
 // the FENCE channel gains one bounded retry that drops the erroring nodes and
 // renders whatever survives cleanly.
 import { describe, expect, it } from 'vitest'
-import { isRenderableProcess, partialRepairGenuiSpec, processGenuiSpec } from '../src/client/guard.ts'
+import { isRenderableProcess, partialRepairGenuiSpec, processGenuiSpec, validateGenuiSpec } from '../src/client/guard.ts'
 import { resolveGenuiSpec } from '../src/client/fence-render.tsx'
 
 /** The render decision the fence channels make (parse → strict → partial). */
@@ -58,6 +58,64 @@ describe('partial fence rendering (issue #186)', () => {
   it('passes a clean spec through untouched', () => {
     const raw = '{"items":[{"type":"text","content":"好"}]}'
     expect(partialRepairGenuiSpec(processGenuiSpec(JSON.parse(raw)))).toEqual(fenceSpec(raw))
+  })
+})
+
+describe('empty tabs (issue #215)', () => {
+  const raw = JSON.stringify({
+    items: [{
+      type: 'tabs',
+      tabs: [
+        { label: 'A', items: [{ type: 'text', content: 'a' }] },
+        { label: 'B' },
+      ],
+    }],
+  })
+
+  it('normalizes a missing tab items field to an empty array before validation', () => {
+    const processed = processGenuiSpec(JSON.parse(raw))
+
+    expect(processed.errors).toEqual([])
+    expect(validateGenuiSpec(processed.normalized).ok).toBe(true)
+    expect(processed.repaired?.items[0]).toEqual({
+      type: 'tabs',
+      tabs: [
+        { label: 'A', items: [{ type: 'text', content: 'a' }] },
+        { label: 'B', items: [] },
+      ],
+    })
+  })
+
+  it('renders a fence whose only root node is tabs with an empty tab', () => {
+    expect(fenceSpec(raw)).toEqual({
+      items: [{
+        type: 'tabs',
+        tabs: [
+          { label: 'A', items: [{ type: 'text', content: 'a' }] },
+          { label: 'B', items: [] },
+        ],
+      }],
+    })
+  })
+
+  it('keeps the content alias for tab content', () => {
+    const processed = processGenuiSpec({
+      items: [{ type: 'tabs', tabs: [{ label: 'A', content: { type: 'text', content: 'a' } }] }],
+    })
+
+    expect(processed.errors).toEqual([])
+    expect(processed.repaired?.items[0]).toEqual({
+      type: 'tabs',
+      tabs: [{ label: 'A', items: [{ type: 'text', content: 'a' }] }],
+    })
+  })
+
+  it('continues to report an explicitly invalid tab items value', () => {
+    const processed = processGenuiSpec({
+      items: [{ type: 'tabs', tabs: [{ label: 'A', items: 123 }] }],
+    })
+
+    expect(processed.errors.join('\n')).toContain('tabs[0].items[0]')
   })
 })
 

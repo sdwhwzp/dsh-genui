@@ -26,10 +26,10 @@ jobs:
             host-ref: "dsh-v0.1.7-alpha.1"
             channel: preview-floor
           - node: 22
-            host-ref: "dsh-v0.1.7-alpha.2"
+            host-ref: "dsh-v0.1.7-rc.2"
             channel: preview-latest
           - node: 24
-            host-ref: "dsh-v0.1.7-alpha.2"
+            host-ref: "dsh-v0.1.7-rc.2"
             channel: preview-latest
     runs-on: ubuntu-latest
     timeout-minutes: 40

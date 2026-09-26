@@ -23,7 +23,8 @@ function InlineMath({ source, display }: { source: string; display: boolean }) {
 // A real newline in the string is its own token rendered as <br>, so text
 // fields express a line break via JSON "\n" — no HTML parsing, and the
 // single-line (nowrap) chrome classes never contain one.
-const INLINE = /`[^`\n]+`|\\\\|\\\$|(?<![\\$])\$\$(?:\\.|[^\\])*?\$\$|\\\[(?:\\(?!\])[^]|[^\\])*?\\\]|\\\((?:\\(?!\))[^]|[^\\])*?\\\)|(?<![\\$])\$(?!\s|\$)(?:\\.|[^$\\\n])+(?<!\s)\$(?!\d|\$)|\*\*[\s\S]+?\*\*|==[\s\S]+?==|\[[^\]\n]+\]\([^)\s]+\)|\r?\n/g
+const INLINE = /(?<!`)`[^`\n]+`(?!`)|\\\\|\\\$|(?<![\\$])\$\$(?:\\.|[^\\])*?\$\$|\\\[(?:\\(?!\])[^]|[^\\])*?\\\]|\\\((?:\\(?!\))[^]|[^\\])*?\\\)|(?<![\\$])\$(?!\s|\$)(?:\\.|[^$\\\n])+(?<!\s)\$(?!\d|\$)|\*\*[\s\S]+?\*\*|==[\s\S]+?==|\[[^\]\n]+\]\([^)\s]+\)|\r?\n/g
+const FENCE_MARKER = /`{3,}|~{3,}/g
 
 export function hasInlineMarkup(text: string): boolean {
   return typeof text === 'string' && /[`*=$\\\n\r]|\[/.test(text)
@@ -32,6 +33,30 @@ export function hasInlineMarkup(text: string): boolean {
 /** Render safe phrasing content, usable in headings, buttons and labels too. */
 export function renderInline(text: string, allowLinks = true, depth = 0): ReactNode {
   if (typeof text !== 'string' || text === '' || !hasInlineMarkup(text) || depth >= 8) return text
+  const segments: ReactNode[] = []
+  let fenceEnd = 0
+  for (const opening of text.matchAll(FENCE_MARKER)) {
+    const openingStart = opening.index ?? 0
+    if (openingStart < fenceEnd) continue
+    const marker = opening[0]
+    const contentStart = openingStart + marker.length
+    let closingEnd: number | undefined
+    for (const candidate of text.slice(contentStart).matchAll(FENCE_MARKER)) {
+      if (candidate[0][0] === marker[0] && candidate[0].length >= marker.length) {
+        closingEnd = contentStart + (candidate.index ?? 0) + candidate[0].length
+        break
+      }
+    }
+    if (openingStart > fenceEnd) segments.push(renderInline(text.slice(fenceEnd, openingStart), allowLinks, depth))
+    // 围栏及其中的代码、换行和行内标记都保持原文。
+    fenceEnd = closingEnd ?? text.length
+    segments.push(text.slice(openingStart, fenceEnd))
+    if (closingEnd === undefined) break
+  }
+  if (segments.length > 0) {
+    if (fenceEnd < text.length) segments.push(renderInline(text.slice(fenceEnd), allowLinks, depth))
+    return segments
+  }
   const out: ReactNode[] = []
   let last = 0
   let key = 0

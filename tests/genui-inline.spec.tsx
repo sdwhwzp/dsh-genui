@@ -61,6 +61,58 @@ describe('inline markup', () => {
     expect(out).toContain('<br')
   })
 
+  it('keeps fenced backticks literal instead of parsing an inner code span', () => {
+    const out = html('因为：```score = 1```于是')
+    expect(out).not.toContain('<code')
+    expect(out).toContain('```score = 1```')
+  })
+
+  it('keeps complete fenced content opaque while parsing surrounding inline text', () => {
+    const out = html('**前文** ```js\nconst name = `foo`\n**原文**\n``` **后文**')
+    expect(out).not.toContain('<code')
+    expect(out).toContain('const name = `foo`')
+    expect(out).toContain('**原文**')
+    expect(out.match(/<strong/g)).toHaveLength(2)
+    expect(out).not.toContain('<br')
+
+    const tilde = html('~~~js\nconst name = `foo`\n~~~')
+    expect(tilde).not.toContain('<code')
+    expect(tilde).toContain('`foo`')
+  })
+
+  it('keeps content after an unclosed fence marker literal', () => {
+    const out = html('**前文** ```js\nconst name = `foo`\n**原文**')
+    expect(out).not.toContain('<code')
+    expect(out).toContain('const name = `foo`')
+    expect(out).toContain('**原文**')
+    expect(out.match(/<strong/g)).toHaveLength(1)
+    expect(out).not.toContain('<br')
+  })
+
+  it.each(['``foo``', '```foo```', '````foo````'])('keeps consecutive backticks literal: %s', source => {
+    const out = html(source)
+    expect(out).not.toContain('<code')
+    expect(out).toContain(source)
+  })
+
+  it('still renders a single-backtick code span', () => {
+    const out = html('运行 `pnpm test`')
+    expect(out).toContain('<code')
+    expect(out).toContain('pnpm test')
+  })
+
+  it('keeps the reported callout content as literal inline text', () => {
+    const { container } = render(<GenuiBlock spec={{ items: [
+      { type: 'callout', tone: 'error', title: '围栏', content: '因为：```score = 1 - 0.05 × level ```于是照建不误' },
+      { type: 'callout', tone: 'info', title: '表格', content: '| 配置 | 级数 |\n|---|---|\n| 破例版 | 887 |' },
+    ] }} />)
+    expect(container.querySelector('code')).toBeNull()
+    expect(container.textContent).toContain('```score = 1 - 0.05 × level ```')
+    expect(container.textContent).toContain('|---|---|')
+    expect(container.querySelector('table')).toBeNull()
+    expect(container.querySelectorAll('br')).toHaveLength(2)
+  })
+
   it('expresses a line break inside a callout through the block path (#177)', () => {
     render(<GenuiBlock spec={{
       title: '换行',

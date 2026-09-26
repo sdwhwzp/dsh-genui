@@ -27,7 +27,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { GenuiBlock } from './GenuiBlock.tsx'
+import { ExportableGenuiBlock } from './artifact/ExportableGenuiBlock.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { panelStateKey } from './interaction-store.ts'
 import { TemplateDrawer } from './TemplateDrawer.tsx'
@@ -273,7 +273,7 @@ export function GenuiPanel({ sessionId, sendGenuiAction, insertTemplate }: Genui
             <GenuiActionContext.Provider value={sendGenuiAction}>
               <ErrorBoundary label={t('panel.boundary')}>
                 {/* content-fingerprinted: same panel spec re-published restores its state */}
-                <GenuiBlock spec={spec} stateKey={panelStateKey(sessionId, JSON.stringify(spec))} />
+                <ExportableGenuiBlock spec={spec} stateKey={panelStateKey(sessionId, JSON.stringify(spec))} />
               </ErrorBoundary>
             </GenuiActionContext.Provider>
           ) : null}

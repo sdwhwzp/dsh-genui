@@ -98,7 +98,7 @@ The repository ships both renderer channels, the host plugin, and the built brow
 
 Prerequisites — all required:
 
-1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`** (verified host tags: `dsh-v0.1.2-rc.1`, `dsh-v0.1.7-alpha.1`, `dsh-v0.1.7-alpha.2`, and `dsh-v0.1.7-rc.1`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
+1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`** (verified host tags: `dsh-v0.1.2-rc.1`, `dsh-v0.1.7-alpha.1`, `dsh-v0.1.7-alpha.2`, `dsh-v0.1.7-rc.1`, and `dsh-v0.1.7-rc.2`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
 
 The deployment fork preserves saved reply field aliases (`hero.number`, `hero.tone: brand`, `steps[].content`, `diff` container/record aliases and unified-diff strings), safe links in table cells, and direct fence output. Settled fences can combine misplaced table rows with missing property commas; repair retains the following components. Its `/panel` command includes the command name and argument separator required by Harness 0.1.6; both menu selection and direct Enter remain available.
 
@@ -224,6 +224,10 @@ The model writes the interface description as JSON inside a `dsh-ui` fence; the 
 
 The core render package stays light (≈110 KB min / 28 KB gzip); the mermaid, three.js, and echarts engines are bundled separately as on-demand assets (loaded through the plugin's self-registered HTTP routes the first time they're used), so startup only downloads the rendering core.
 
+## Export a GenUI artifact
+
+Settled GenUI blocks expose **Export → HTML** and **GenUI JSON**. The `.html` file includes its renderer, styles, KaTeX WOFF2 fonts, and only the chart engines used by the spec. Local controls continue to work; model actions are disabled. Relative media URLs become absolute URLs based on the export page; media still requires network access when the file is opened offline. `.genui.json` preserves the original media URLs, normalized spec, durable interaction state, locale, and theme. Custom components disable HTML export, and export errors appear beside the menu. Hosts can use `createGenuiArtifact`, `parseGenuiArtifact`, `serializeGenuiArtifact`, and `buildStandaloneHtml` from `@changfenhuang/dsh-genui/embed`; `@changfenhuang/dsh-genui/assets/standalone` resolves to the built runtime script for copying or serving.
+
 ## ❓ FAQ
 
 - **Rendering as a code block?** First check the browser console for `[genui] client active; fence-channel=registry|dom`. If absent, the client bundle was not activated even if its URL returns 200 — align the profile dependency, `package.json.name`, `cordis.patch.yml`, ModuleLoader id, and configured bundle name. If present, inspect the fence label/body; registry-less hosts automatically use the DOM channel.
@@ -243,7 +247,7 @@ pnpm run check   # type check + full tests + build
 
 With the locked dependencies installed, the check script (`pnpm run check` or `npm run check`) uses the pinned DSH `0.1.2-rc.1` release packages.
 
-`pnpm run check:host-api dsh-v0.1.7-alpha.1` and `pnpm run check:host-api dsh-v0.1.7-alpha.2` install the corresponding published DSH packages in an isolated workspace and run TypeScript typecheck plus tsdown build. CI runs both alpha checks before packed host smoke tests. `pnpm run check:host-api dsh-v0.1.7-rc.1` validates the RC deployment API in the same isolated workspace.
+`pnpm run check:host-api dsh-v0.1.7-alpha.1` and `pnpm run check:host-api dsh-v0.1.7-alpha.2` install the corresponding published DSH packages in an isolated workspace and run TypeScript typecheck plus tsdown build. CI runs both alpha checks before packed host smoke tests. `pnpm run check:host-api dsh-v0.1.7-rc.1` and `pnpm run check:host-api dsh-v0.1.7-rc.2` validate the RC deployment APIs in the same isolated workspace.
 
 After building the plugin and a Harness checkout, run `GENUI_HARNESS_ROOT=/path/to/deepseek-harness pnpm exec vitest run --config vitest.artifact.config.ts` to render a saved itinerary through the emitted browser entry and validate the same fields through the emitted Host tools. This separate artifact lane uses that checkout’s built React primitives and system-prompt service.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.2-preview.1-dsh.20260926.1] - 2026-09-26
+
+- Includes upstream standalone HTML/JSON export, inline Markdown diagnostics, durable textarea values, quiz resets, and Session-format-aware fence feedback.
+- Retains deployment compatibility for saved itinerary fields, booking links, repaired fences, direct fence output, and precise chart totals.
+
 ## [0.11.1-preview.3-dsh.20260924.3] - 2026-09-24
 
 - 柱状图按每个分类中原始数值的小数精度显示合计，覆盖横向、纵向、分组和堆叠模式的标签与提示框，避免 `0.1 + 0.2` 显示为 `0.30000000000000004`。保留高精度输入与大整数。
@@ -12,6 +17,50 @@
 - 围栏修复新增「对象属性值与下一行键之间漏逗号」：`insertMissingPropertyCommas` 作为 tier-1/tier-2 的前置扫描（仅对象内、仅跨行、字符串内不处理），线上 `Expected ',' or '}' after property value … (line 4 column 1)` 的围栏在浏览器直接渲染，`validate_dsh_ui` 以 ❌ 附「已自动修复」JSON 回给模型。
 
 ## [Unreleased]
+
+## [0.11.2-preview.1] - 2026-09-26
+
+### 新增
+
+- 完成态 GenUI 支持导出 standalone HTML 与 `.genui.json`（#205、PR #212）。
+- standalone 页面内嵌运行时、样式、主题、KaTeX 字体及按需选择的图形引擎，可独立打开；成果物保存安全的交互状态、语言和主题。
+
+### 兼容性
+
+- `preview-latest` 与 Release API、packed smoke 宿主检查统一更新为 DSH `0.1.7-rc.2`，并保留 `0.1.7-rc.1` API 标签检查能力。
+- Session format v4 的 fence repair feedback 使用 producer-owned source kind，避免新版 DSH 拒绝反馈消息；同时识别原始插件来源和迁移后的 v4 来源（#218、PR #220）。
+
+### 修复
+
+- 去除 `validateGenuiSpec` 与 `processGenuiSpec` 中完全相同的重复校验错误，覆盖 chart、tabs 和 accordion 的嵌套数据（#222、PR #223）。
+- `TextareaNode` 恢复时优先使用已持久化的用户值，避免重新挂载后被 spec 默认值覆盖（PR #213）。
+- `QuizNode` 的 `id` 改变时重置已作答状态，避免原位换题后保留旧题状态（PR #214）。
+- 允许 tab 缺少 `items` 及空 tab，修复相关校验失败（PR #216）。
+- 改进行内 Markdown 内容校验与反引号解析，减少误报并保留代码围栏原文（PR #217）。
+
+## [0.11.1] - 2026-09-24
+
+### 兼容性
+
+- 支持 DSH `^0.1.7-alpha.1`，并将 `dsh-v0.1.7-rc.1` 纳入宿主兼容验证；保留 `dsh-v0.1.2-rc.1` 最低版本验证。
+- 新版 DSH 隐去 `dsh-ui` fence language 后，从公开 `ChatSnapshot` 原始 Markdown 恢复 source language；streaming 阶段正常识别，settled 后保持 GenUI，不再恢复为 JSON CodeBlock（#203、#204）。
+- 适配新版 `CommandClaim.name`、ui-primitives 箭头图标导出和 `DiffBlockLabels` 工具栏文案。
+
+### 新增
+
+- ECharts 增加 `wordCloud` 预设及 `echarts-wordcloud` 扩展支持；新增隔离图片模式 SVG 组件与裸 `svg` fence 预览（#183）。
+- 文字字段支持真实换行；浏览器界面文案支持中英文切换，并可跟随 DSH 语言设置。
+- 离散控件操作逐次回传，slider 拖动继续合并同一控件的连续变化（#178）。
+- 围栏支持逐节点保留有效组件；回合结束时校验最终 `dsh-ui` 围栏正文，为被拒绝的围栏显示诊断，并默认开启同回合修正反馈（#160、#186、#200）。
+
+### 修复
+
+- 修复新版 DSH 移除 `sessions.list.current` 后的会话解析，恢复 action 回传、状态保存和 `panel: true` 发布（#196）。
+- 修复堆叠柱状图按分类合计值计算尺度的问题（#206）。
+- 修复柱状图合计的浮点显示误差，按分类输入精度显示结果（#209、#210）。
+- 修复模型反馈引起的回复语言漂移（#165），以及 Tetris 表格 `columns` 与 `rows` 错位时的围栏解析（#192、#193）。
+- 扩展字段别名、根形状识别、表格表头推导和节点校验诊断，减少可恢复输入造成的组件丢失（#163、#172、#175）。
+- 修复 Math 行内标记中的转义字符处理，并更新字段规范化规则（#177）。
 
 ## [0.11.1-preview.3] - 2026-09-23
 

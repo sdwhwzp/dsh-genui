@@ -15,6 +15,7 @@ import {
   installFenceFeedback,
   planFenceFeedback,
   FEEDBACK_PLUGIN_NAME,
+  FEEDBACK_SOURCE_KIND,
 } from '../src/plugin/fence-feedback.ts'
 
 /** A fence body that renders: one stat carrying a metric list (#172 case A). */
@@ -212,7 +213,7 @@ describe('planFenceFeedback: the bounds that prevent a retry storm', () => {
 })
 
 describe('the steered correction message', () => {
-  it('is a plugin-sourced notice with a stable marker and the failure detail', () => {
+  it('uses the producer-owned source kind for Session format v4', () => {
     const failures = fenceFailures(reply(BROKEN))
     const text = fenceCorrectionText(failures)
     expect(text).toContain(`[genui-fence-repair #${failures[0]!.fingerprint}]`)
@@ -223,14 +224,28 @@ describe('the steered correction message', () => {
     expect(text).not.toContain('next=fix_and_revalidate')
     expect(text).not.toContain('围栏没有渲染成界面')
     expect(text).not.toContain('请只重发修正后的')
-    const message = createFeedbackMessage(text)
+    const message = createFeedbackMessage(text, 4)
     expect(message.role).toBe('user')
     expect(typeof message.id).toBe('string')
-    expect(message.source).toMatchObject({ kind: `plugin:${FEEDBACK_PLUGIN_NAME}`, form: 'notice' })
-    expect(message.source).not.toHaveProperty('plugin')
+    expect(message.source).toEqual({
+      kind: FEEDBACK_SOURCE_KIND,
+      form: 'notice',
+      summary: 'genui fence repair requested',
+    })
     expect(Object.isFrozen(message)).toBe(true)
     // No triple backticks: the notice renders as markdown in the transcript.
     expect(text).not.toContain('```')
+  })
+
+  it('uses the legacy plugin source on older Session formats', () => {
+    const message = createFeedbackMessage('repair', 0)
+
+    expect(message.source).toEqual({
+      kind: 'plugin',
+      plugin: FEEDBACK_PLUGIN_NAME,
+      form: 'notice',
+      summary: 'genui fence repair requested',
+    })
   })
 
   it('numbers each broken fence when a reply has several', () => {
@@ -252,12 +267,13 @@ describe('installFenceFeedback wiring', () => {
     const h = harness()
     h.emitSession(userEvent())
     h.emitSession(assistantEvent(reply(BROKEN)))
-    h.boundary({ agent: { session: { id: 'sess-1', header: { id: 'sess-1' } }, steer: h.steer }, turn: 4, signal: new AbortController().signal })
+    const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+    h.boundary({ agent, turn: 4, signal: new AbortController().signal })
     expect(h.steer).toHaveBeenCalledTimes(1)
     const message = h.steer.mock.calls[0]![0] as { source: { kind: string } }
-    expect(message.source.kind).toBe(`plugin:${FEEDBACK_PLUGIN_NAME}`)
+    expect(message.source.kind).toBe(FEEDBACK_SOURCE_KIND)
     // A second boundary of the same turn must not steer again.
-    h.boundary({ agent: { session: { id: 'sess-1', header: { id: 'sess-1' } }, steer: h.steer }, turn: 4, signal: new AbortController().signal })
+    h.boundary({ agent, turn: 4, signal: new AbortController().signal })
     expect(h.steer).toHaveBeenCalledTimes(1)
   })
 
@@ -290,7 +306,7 @@ describe('installFenceFeedback wiring', () => {
       time: 1,
       data: {
         content: [{ type: 'text', text: fenceCorrectionText(failures) }],
-        source: { kind: `plugin:${FEEDBACK_PLUGIN_NAME}`, form: 'notice', summary: 'x' },
+        source: { kind: FEEDBACK_SOURCE_KIND, form: 'notice', summary: 'x' },
       },
     } as unknown as SessionEvent)
     h.emitSession(assistantEvent(reply(BROKEN)))
@@ -307,6 +323,23 @@ describe('installFenceFeedback wiring', () => {
       time: 1,
       data: {
         content: [{ type: 'text', text: `[genui 自修 #${fingerprint}]\nlegacy repair notice` }],
+        source: { kind: FEEDBACK_SOURCE_KIND, form: 'notice', summary: 'legacy' },
+      },
+    } as unknown as SessionEvent)
+    h.emitSession(assistantEvent(reply(BROKEN)))
+    h.boundary({ agent: { session: { id: 'sess-1', header: { id: 'sess-1' } }, steer: h.steer }, turn: 9, signal: new AbortController().signal })
+    expect(h.steer).not.toHaveBeenCalled()
+  })
+
+  it('recognizes original legacy plugin source wrappers', () => {
+    const h = harness()
+    const failures = fenceFailures(reply(BROKEN))
+    h.emitSession({
+      type: 'user/message',
+      seq: 4,
+      time: 1,
+      data: {
+        content: [{ type: 'text', text: fenceCorrectionText(failures) }],
         source: { kind: 'plugin', plugin: FEEDBACK_PLUGIN_NAME, form: 'notice', summary: 'legacy' },
       },
     } as unknown as SessionEvent)

@@ -98,7 +98,7 @@ CI 的 packed host smoke 会把实际生成的 npm tarball 安装到真实 DSH �
 
 前置条件，缺一不可：
 
-1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`**（验收宿主标签为 `dsh-v0.1.2-rc.1`、`dsh-v0.1.7-alpha.1` 、`dsh-v0.1.7-alpha.2` 与 `dsh-v0.1.7-rc.1`；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
+1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`**（验收宿主标签为 `dsh-v0.1.2-rc.1`、`dsh-v0.1.7-alpha.1` 、`dsh-v0.1.7-alpha.2` 、`dsh-v0.1.7-rc.1` 与 `dsh-v0.1.7-rc.2`；使用 DSH `<=0.1.1-rc.x` 的用户请使用 dsh-genui `0.9.8`）
 
 部署 fork 保留已保存回复的字段别名（`hero.number`、`hero.tone: brand`、`steps[].content`、`diff` 容器/记录别名与 unified-diff 字符串）、表格单元格安全链接与围栏直接输出行为。已结束的围栏同时存在表格行错位和属性间缺少逗号时，可以组合修复并保留后续组件。`/panel` 命令包含 Harness 0.1.6 要求的命令名及参数分隔空格，支持从菜单选择和直接回车执行。
 
@@ -250,6 +250,10 @@ dsh plugin --profile web add link:$PWD
 
 调用 `setGenuiAssetBase` 设置本地引擎目录；从公开的 `@changfenhuang/dsh-genui/assets/mermaid`、`assets/three`、`assets/echarts-core`、`assets/echarts` 构建对应脚本。模型指引从 `@changfenhuang/dsh-genui/skill` 读取。宿主只补自己的交付通道和设计变量；渲染器仍使用本包与 `@deepseek-ai/dsh-client-ui-primitives` 的组件。构建时提供 React、CSS Modules、KaTeX 字体及所用引擎依赖。
 
+### 导出 GenUI 成果文件
+
+已完成的 GenUI 区块提供“导出 → HTML”和“GenUI JSON”。`.html` 文件内含渲染器、样式、KaTeX WOFF2 字体和规格实际需要的图形引擎，本地控件可以继续使用，模型动作按钮会禁用。相对媒体地址会按导出页面的地址转换为绝对地址；离线打开时，网络媒体仍需连接原站点。`.genui.json` 保留原媒体地址、规范化规格、可持久化交互状态、语言和主题。自定义组件会禁用 HTML 导出，导出错误会显示在菜单旁。宿主可从 `@changfenhuang/dsh-genui/embed` 使用 `createGenuiArtifact`、`parseGenuiArtifact`、`serializeGenuiArtifact` 和 `buildStandaloneHtml`；`@changfenhuang/dsh-genui/assets/standalone` 指向可供复制或提供下载的运行文件。
+
 ```sh
 pnpm install
 pnpm run check   # 类型检查 + 全量测试 + 构建
@@ -257,7 +261,7 @@ pnpm run check   # 类型检查 + 全量测试 + 构建
 
 安装锁定依赖后，检查脚本（`pnpm run check` 或 `npm run check`）使用固定的 DSH `0.1.2-rc.1` 发布包。
 
-`pnpm run check:host-api dsh-v0.1.7-alpha.1` 与 `pnpm run check:host-api dsh-v0.1.7-alpha.2` 会在隔离目录安装对应的 DSH npm 发布包，运行 TypeScript 类型检查与 tsdown 构建。CI 对两个 alpha 版本执行检查，然后运行安装包宿主 smoke 测试。`pnpm run check:host-api dsh-v0.1.7-rc.1` 在同样的隔离目录验证 RC 部署 API。
+`pnpm run check:host-api dsh-v0.1.7-alpha.1` 与 `pnpm run check:host-api dsh-v0.1.7-alpha.2` 会在隔离目录安装对应的 DSH npm 发布包，运行 TypeScript 类型检查与 tsdown 构建。CI 对两个 alpha 版本执行检查，然后运行安装包宿主 smoke 测试。`pnpm run check:host-api dsh-v0.1.7-rc.1` 与 `pnpm run check:host-api dsh-v0.1.7-rc.2` 在同样的隔离目录验证 RC 部署 API。
 
 构建插件与 Harness 后，运行 `GENUI_HARNESS_ROOT=/path/to/deepseek-harness pnpm exec vitest run --config vitest.artifact.config.ts`，使用产物中的浏览器入口重放已保存行程，并通过 Host 工具校验同样的字段。独立产物测试使用该 Harness 已构建的 React 基础组件和系统提示服务。
 

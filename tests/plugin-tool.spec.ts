@@ -217,6 +217,116 @@ describe('validate_dsh_ui tool', () => {
     expect(String(await vtool.execute(good))).toContain('status=valid')
   })
 
+  it('reports fenced code and Markdown table in canonical inline content', async () => {
+    const value = String(await vtool.execute({ spec: JSON.stringify({ items: [
+      { type: 'callout', tone: 'error', title: '围栏', content: '因为：```score = 1 - 0.05 × level ```于是照建不误' },
+      { type: 'callout', tone: 'info', title: '表格', content: '| 配置 | 级数 |\n|---|---|\n| 破例版 | 887 |' },
+    ] }) }))
+    expect(value).toContain('status=valid')
+    expect(value).toContain('rendered=2')
+    expect(value).toContain('warning=block_markdown path=items[0].content kind=fenced_code replacement=code')
+    expect(value).toContain('warning=block_markdown path=items[1].content kind=markdown_table replacement=table')
+    expect(value).toContain('next=fix_and_revalidate')
+
+    const corrected = String(await vtool.execute({ spec: { items: [
+      { type: 'code', code: 'score = 1 - 0.05 × level' },
+      { type: 'table', columns: ['配置', '级数'], rows: [['破例版', '887']] },
+    ] } }))
+    expect(corrected).toContain('status=valid')
+    expect(corrected).toContain('next=emit_fence')
+    expect(corrected).not.toContain('warning=block_markdown')
+  })
+
+  it('reports canonical aliases and nested component paths', async () => {
+    const value = String(await vtool.execute({ spec: { items: [
+      { type: 'callout', desc: '```alias```' },
+      { type: 'tabs', tabs: [{ label: '页', items: [{ type: 'text', content: '~~~nested~~~' }] }] },
+      { type: 'table', columns: ['列'], rows: [['值']], details: [[{ type: 'keyvalue', pairs: [{ key: '键', value: 'a | b\n---|---' }] }]] },
+    ] } }))
+    expect(value).toContain('warning=block_markdown path=items[0].content kind=fenced_code replacement=code')
+    expect(value).toContain('warning=block_markdown path=items[1].tabs[0].items[0].content kind=fenced_code replacement=code')
+    expect(value).toContain('warning=block_markdown path=items[2].details[0][0].pairs[0].value kind=markdown_table replacement=table')
+    expect(value).toContain('next=fix_and_revalidate')
+  })
+
+  it('checks visible labels and table cells without scanning input values', async () => {
+    const value = String(await vtool.execute({ spec: { title: '```标题```', items: [
+      { type: 'button', label: '~~~操作~~~', action: '```raw```' },
+      { type: 'table', columns: ['列'], rows: [['a | b\n---|---']] },
+      { type: 'input', label: '输入', value: '```raw```', placeholder: '```raw```' },
+    ] } }))
+    expect(value).toContain('warning=block_markdown path=title kind=fenced_code replacement=code')
+    expect(value).toContain('warning=block_markdown path=items[0].label kind=fenced_code replacement=code')
+    expect(value).toContain('warning=block_markdown path=items[1].rows[0][0] kind=markdown_table replacement=table')
+    expect(value.match(/warning=block_markdown/g)).toHaveLength(3)
+  })
+
+  it('ignores index cell content unless a detail toggle displays it', async () => {
+    const ignored = String(await vtool.execute({ spec: { items: [{
+      type: 'table', columns: ['序号'], types: ['index'], rows: [['```ignored```']],
+    }] } }))
+    expect(ignored).toContain('status=valid')
+    expect(ignored).toContain('next=emit_fence')
+    expect(ignored).not.toContain('warning=block_markdown')
+
+    const visible = String(await vtool.execute({ spec: { items: [{
+      type: 'table', columns: ['序号'], types: ['index'], rows: [['```visible```']],
+      details: [[{ type: 'text', content: '说明' }]],
+    }] } }))
+    expect(visible).toContain('warning=block_markdown path=items[0].rows[0][0] kind=fenced_code replacement=code')
+    expect(visible).toContain('next=fix_and_revalidate')
+  })
+
+  it('keeps raw-content data and ordinary pipes free of block Markdown warnings', async () => {
+    const value = String(await vtool.execute({ spec: { items: [
+      { type: 'code', code: '```js\nfoo()\n```' },
+      { type: 'mermaid', code: 'graph TD\nA --> B' },
+      { type: 'copy', text: '```foo```' },
+      { type: 'diff', diffs: [{ path: 'a.ts', oldText: '```old```', newText: '```new```' }] },
+      { type: 'json', value: { type: 'text', content: '```data```' } },
+      { type: 'echart', option: { type: 'text', content: '```data```' } },
+      { type: 'text', content: 'foo | bar' },
+      { type: 'text', content: 'A | B\n普通第二行' },
+      { type: 'custom-widget', content: '```opaque```' },
+    ] } }))
+    expect(value).toContain('status=valid')
+    expect(value).toContain('next=emit_fence')
+    expect(value).not.toContain('warning=block_markdown')
+  })
+
+  it('keeps chart category labels free of block Markdown warnings', async () => {
+    const value = String(await vtool.execute({ spec: { items: [
+      { type: 'chart', data: [
+        { label: '版本 ```alpha```', value: 1 },
+        { label: 'A | B\n---|---', value: 2 },
+      ] },
+      { type: 'chart', kind: 'line', series: [{ label: '版本', data: [
+        { label: '~~~alpha~~~', value: 1 },
+        { label: 'A | B\n---|---', value: 2 },
+      ] }] },
+    ] } }))
+    expect(value).toContain('status=valid')
+    expect(value).toContain('next=emit_fence')
+    expect(value).not.toContain('warning=block_markdown')
+
+    const seriesLabel = String(await vtool.execute({ spec: { items: [
+      { type: 'chart', series: [{ label: '```series```', data: [{ label: '```category```', value: 1 }] }] },
+    ] } }))
+    expect(seriesLabel).toContain('warning=block_markdown path=items[0].series[0].label kind=fenced_code replacement=code')
+    expect(seriesLabel.match(/warning=block_markdown/g)).toHaveLength(1)
+  })
+
+  it('requires content changes after repairing JSON with block Markdown', async () => {
+    const value = String(await vtool.execute({
+      spec: '{"items":[{"type":"callout","content":"| A | B |\\n|---|---|\\n| x | y |"},],}',
+    }))
+    expect(value).toContain('repair=applied')
+    expect(value).toContain('warning=block_markdown path=items[0].content kind=markdown_table replacement=table')
+    expect(value).toContain('next=fix_and_revalidate')
+    expect(value).not.toContain('next=emit_repaired_fence')
+    expect(value).toContain('repaired_json:')
+  })
+
   it('warns when declared components were silently dropped (issue #42)', async () => {
     // The table has no recognizable rows/columns at all: repair drops it and
     // the tool must not green-light a half-empty tree.

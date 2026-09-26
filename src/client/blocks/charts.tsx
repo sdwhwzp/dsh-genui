@@ -12,7 +12,7 @@
  */
 import { Fragment, memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
-import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { writeClipboard } from '../primitive-adapter.ts'
 import { renderInline } from '../inline.ts'
 // Aliased: `t` is already used throughout this module as a tick-value
 // local (ticks.map(t => …)), so the translator rides a distinct name.

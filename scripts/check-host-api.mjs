@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const hostRef = process.argv[2]
-assert.match(hostRef ?? '', /^dsh-v0\.1\.7-(?:alpha\.[12]|rc\.1)$/, '需要明确的 DSH 0.1.7 发布标签')
+assert.match(hostRef ?? '', /^dsh-v0\.1\.7-(?:alpha\.[12]|rc\.[12])$/, '需要明确的 DSH 0.1.7 发布标签')
 const version = hostRef.slice('dsh-v'.length)
 const pkg = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'))
 const dshPackages = Object.keys(pkg.peerDependencies).filter(name => name.startsWith('@deepseek-ai/dsh-'))

@@ -72,7 +72,7 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 - submit: `{"type":"submit","label":"<user-language action>","action":"grade","groups":["q1","styles"],"resetAction":"redo"?}` — 聚合按钮：纯 radio 且题目带 `answer` 时仍本地立即判卷（得分 + 每题 ✓/✗ + 解析，零往返）；其余聚合场景一次发送 `[genui-action]`，payload 为 `{answers:{q1:"<user-language option>",styles:["<user-language option>","<user-language option>"]},fields:{id:"<user-language value>"},total,answered}`。`groups` 中每个 radio 必须已选择、每个 checkbox 组必须至少勾选一项才可提交
 - switch: `{"type":"switch","label":"...","checked":true?,"action":"toggle"?}`
 - textarea: `{"type":"textarea","label":"...","placeholder":"...","rows":n?,"value":"...","action":"save"?,"id":"field-id"?}` — action 在失焦和 **Ctrl/Cmd+Enter** 时触发；blur 仅值有变化才发送；带 `id` 的值刷新后保留
-- tabs: `{"type":"tabs","tabs":[{"label":"...","items":[...]}]}`
+- tabs: `{"type":"tabs","tabs":[{"label":"...","items":[...]}]}` — 空 tab 可以省略 `items`，会按空数组处理
 - accordion: `{"type":"accordion","items":[{"title":"...","items":[...]}]}`
 - copy: `{"type":"copy","label":"<user-language action>","text":"<user-language text>"}`
 
@@ -135,6 +135,8 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 | JSON `"\n"`（真实换行符） | 换行——**多段文字写同一个字段**，不要为换行拆成多个节点 |
 
 不嵌套、不解析 HTML（每个标记生成 React 元素，不走 innerHTML；`<br>` 字面显示，换行用 `"\n"`）；标记没闭合时原样显示。数值列 / badge / spark 单元格不解析（数字没什么可强调的）。
+
+文字字段只支持行内富文本。`text.content`、`callout.content`、`list` 项、`keyvalue` 值、`table` 单元格等字段中不要嵌入 Markdown 表格或连续三个及以上反引号、波浪号组成的代码围栏；表格使用 `table`，代码使用 `code`，代码改动使用 `diff`，结构化 JSON 使用 `json`。误写入文字字段的代码围栏连同内部标记保持原文，未闭合时从围栏标记开始保持原文。`validate_dsh_ui` 返回 `warning=block_markdown` 时，按照 `replacement` 改写结构节点并重新验证。
 
 ## 回答级版式：默认无卡，焦点唯一
 

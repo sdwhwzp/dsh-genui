@@ -27,6 +27,8 @@ import {
 import type { GenuiProcessResult } from '../client/guard.ts'
 import { completeFenceJson } from '../shared/fence-repair.ts'
 import { droppedNodeFailure } from './genui-diagnostic.ts'
+import { collectInlineContentWarnings } from './inline-content-diagnostic.ts'
+import type { GenuiSpec } from '../client/spec.ts'
 
 /**
  * Arguments schema: an open `spec` slot. The schema must NOT reject anything
@@ -164,6 +166,12 @@ function formatProcessWarnings(processed: GenuiProcessResult): string[] {
   })
 }
 
+/** 将行内字段的块级 Markdown 诊断写入稳定的验证协议。 */
+function formatInlineContentWarnings(spec: GenuiSpec): string[] {
+  return collectInlineContentWarnings(spec).map(warning =>
+    `warning=block_markdown path=${warning.path} kind=${warning.kind} replacement=${warning.replacement}`)
+}
+
 /** Format chart-specific process errors while keeping other schema errors generic. */
 function formatProcessFailure(processed: GenuiProcessResult): string | undefined {
   const chartErrors = processed.errors.filter(error => /(?:variant is unsupported|kind must be bars, line, or donut|requires data or series|(?:data|series) is required for|(?:\.data|\.series)(?:\[\d+\])?(?:\.(?:data|label|value|color))? must|series is only supported for bars)/.test(error))
@@ -263,7 +271,8 @@ const VALIDATE_DESCRIPTION =
   + 'Call it only when a fence you already emitted failed to render, or when you are about to hand-write an unusually large body (roughly 100+ lines) and want the brackets checked once. '
   + 'Pass the exact JSON text as the "spec" argument (a string). '
   + 'Returns a [genui-validation] protocol block with status, diagnostics, next action, and reply_language=conversation. '
-  + 'When invalid JSON is repairable, next=emit_repaired_fence and repaired_json contain the exact fence body to emit.'
+  + 'When invalid JSON is repairable, repaired_json contains the fixed body; emit it only with next=emit_repaired_fence. '
+  + 'A warning=block_markdown requires the indicated replacement node and another validation call.'
 
 const VALIDATE_PARAMETERS: Record<string, unknown> = {
   type: 'object',
@@ -370,15 +379,17 @@ export function createValidateDshUiTool(): ToolDefinition {
           if (chartFailure !== undefined) return chartFailure
           if (processed.spec !== null && processed.errors.length === 0) {
             const warnings = formatProcessWarnings(processed)
+            const inlineWarnings = formatInlineContentWarnings(processed.spec)
             return `${validationProtocol([
               'status=invalid',
               'error=invalid_json',
               `detail=${JSON.stringify(detail)}`,
               ...bracketDiagnostic(raw),
               ...warnings,
+              ...inlineWarnings,
               'repair=applied',
               `repair_count=${repaired.repairs}`,
-              'next=emit_repaired_fence',
+              inlineWarnings.length === 0 ? 'next=emit_repaired_fence' : 'next=fix_and_revalidate',
             ])}\nrepaired_json:\n\`\`\`\n${repaired.text}\n\`\`\``
           }
         }
@@ -409,7 +420,11 @@ export function createValidateDshUiTool(): ToolDefinition {
           : validationProtocol(['status=invalid', ...dropped, 'next=fix_and_revalidate'])
       }
       const warnings = formatProcessWarnings(processed)
-      return validationProtocol(['status=valid', `rendered=${processed.renderedCount}`, ...warnings, 'next=emit_fence'])
+      const inlineWarnings = formatInlineContentWarnings(processed.spec)
+      return validationProtocol([
+        'status=valid', `rendered=${processed.renderedCount}`, ...warnings, ...inlineWarnings,
+        inlineWarnings.length === 0 ? 'next=emit_fence' : 'next=fix_and_revalidate',
+      ])
     },
     presentCall(): GenericCallView | undefined {
       return { card: 'generic', title: '验证 dsh-ui 围栏', kind: 'other' }

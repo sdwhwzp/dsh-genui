@@ -19,7 +19,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
       PRERELEASE: ${{ github.event.release.prerelease }}
-      HOST_REF: dsh-v0.1.7-alpha.2
+      HOST_REF: dsh-v0.1.7-rc.2
 
     steps:
       # actions/checkout@v4

@@ -20,7 +20,7 @@ import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { codeBlockLabels } from './primitive-labels.ts'
 import { t, useT } from './i18n/index.ts'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
-import { GenuiBlock } from './GenuiBlock.tsx'
+import { ExportableGenuiBlock } from './artifact/ExportableGenuiBlock.tsx'
 import { fenceStateKey } from './interaction-store.ts'
 import { applyPanelOperation, diagnosePanelBudget, type PanelOperationStatus } from './panel-store.ts'
 import type { GenuiSpec } from './spec.ts'
@@ -191,6 +191,9 @@ export function resolveGenuiSpec(raw: string, context?: GenuiFenceContext): Genu
 /** The inline GenuiBlock tree for a resolved non-panel spec. */
 function renderInlineFence(key: Key, context: GenuiFenceContext | undefined, spec: GenuiSpec): ReactNode {
   const sessionId = context?.sessionId
+  const stateKey = sessionId === undefined || context?.source === undefined
+    ? undefined
+    : fenceStateKey(sessionId, context.source.id, JSON.stringify(spec))
   return (
     // Keep the document slot mounted across streaming→settled; GenuiBlock
     // owns durable-state changes, while a session change resets the tree.
@@ -198,18 +201,7 @@ function renderInlineFence(key: Key, context: GenuiFenceContext | undefined, spe
     // tells the user something was wrong — only an unrecoverable body keeps
     // the red diagnostic.
     <ErrorBoundary key={JSON.stringify([sessionId, key])} label={t('err.boundary.fence')}>
-      <GenuiBlock
-        spec={spec}
-        animateEntrance={context?.source === undefined}
-        // v2.7 durable state: session + stable source + content fingerprint —
-        // replaying the same content restores answers/lock/field values; new
-        // content (换题, edited spec) gets a fresh key. Without a stable
-        // source (streaming / non-conversation surfaces) state is not
-        // persisted.
-        stateKey={sessionId === undefined || context?.source === undefined
-          ? undefined
-          : fenceStateKey(sessionId, context.source.id, JSON.stringify(spec))}
-      />
+      <ExportableGenuiBlock spec={spec} animateEntrance={context?.source === undefined} stateKey={stateKey} exportEnabled={context?.source !== undefined} />
     </ErrorBoundary>
   )
 }

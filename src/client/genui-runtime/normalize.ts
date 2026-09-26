@@ -319,7 +319,7 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
       normalizedHolder.items = Array.isArray(normalizedHolder.items)
         ? normalizedHolder.items.map((child, childIndex) => normalizeNodeValue(child, `${path}.tabs[${index}].items[${childIndex}]`))
         : normalizedHolder.items === undefined
-          ? normalizedHolder.items
+          ? []
           : [normalizeNodeValue(normalizedHolder.items, `${path}.tabs[${index}].items[0]`)]
       return normalizedHolder
     })
