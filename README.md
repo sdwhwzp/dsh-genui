@@ -98,10 +98,9 @@ The repository ships both renderer channels, the host plugin, and the built brow
 
 Prerequisites — all required:
 
-1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1`** (verified host tags: `dsh-v0.1.2-rc.1`, `dsh-v0.1.7-alpha.1`, `dsh-v0.1.7-alpha.2`, `dsh-v0.1.7-rc.1`, and `dsh-v0.1.7-rc.2`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
+1. **dsh `^0.1.2-rc.1 || ^0.1.5-alpha.1 || ^0.1.6-alpha.1 || ^0.1.7-alpha.1 || >=0.2.0-rc.1 <0.3.0-0`** (DSH `0.2.0-rc.1` is currently a prerelease; verified host roles: minimum `dsh-v0.1.2-rc.1`, current `dsh-v0.1.7-rc.2`, next `dsh-v0.2.0-rc.1`; users on DSH `<=0.1.1-rc.x` should use dsh-genui `0.9.8`)
 
 The deployment fork preserves saved reply field aliases (`hero.number`, `hero.tone: brand`, `steps[].content`, `diff` container/record aliases and unified-diff strings), safe links in table cells, and direct fence output. Settled fences can combine misplaced table rows with missing property commas; repair retains the following components. Its `/panel` command includes the command name and argument separator required by Harness 0.1.6; both menu selection and direct Enter remain available.
-
 2. **`pnpm` on your PATH**: the `dsh plugin` command depends on it. If missing: `corepack enable` (or `npm i -g pnpm`), then **open a new terminal** and confirm `pnpm -v` prints a version
 
 Install and activate in DSH (one command, all dependencies included):
@@ -247,7 +246,9 @@ pnpm run check   # type check + full tests + build
 
 With the locked dependencies installed, the check script (`pnpm run check` or `npm run check`) uses the pinned DSH `0.1.2-rc.1` release packages.
 
-`pnpm run check:host-api dsh-v0.1.7-alpha.1` and `pnpm run check:host-api dsh-v0.1.7-alpha.2` install the corresponding published DSH packages in an isolated workspace and run TypeScript typecheck plus tsdown build. CI runs both alpha checks before packed host smoke tests. `pnpm run check:host-api dsh-v0.1.7-rc.1` and `pnpm run check:host-api dsh-v0.1.7-rc.2` validate the RC deployment APIs in the same isolated workspace.
+The verified host roles are minimum `dsh-v0.1.2-rc.1`, current `dsh-v0.1.7-rc.2`, and next `dsh-v0.2.0-rc.1`. DSH `0.2.0-rc.1` is currently a prerelease. CI keeps four primary lanes: Node 22 + current, and Node 24 + minimum/current/next. Replace these pinned tags as DSH publishes newer versions.
+
+`pnpm run check:host-api dsh-v0.1.7-rc.2` and `pnpm run check:host-api dsh-v0.2.0-rc.1` install the corresponding published DSH packages and run TypeScript typecheck plus tsdown build. Each CI host lane then installs the generated tarball in its pinned DSH host and runs the packed smoke.
 
 After building the plugin and a Harness checkout, run `GENUI_HARNESS_ROOT=/path/to/deepseek-harness pnpm exec vitest run --config vitest.artifact.config.ts` to render a saved itinerary through the emitted browser entry and validate the same fields through the emitted Host tools. This separate artifact lane uses that checkout’s built React primitives and system-prompt service.
 
