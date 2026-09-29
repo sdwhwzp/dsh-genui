@@ -296,3 +296,6 @@ Overridable: `--port 3098`, `--out <dir>`, `DSH_BIN` (set it to the `apps/cli/li
 ### Saved fence diagnostics
 
 The hero tone `brand` is normalized to `accent`, including saved replies. Invalid completed fences in the DOM rendering channel show an on-page diagnostic beside the unchanged source. Fixing the JSON removes the diagnostic and renders the UI without regenerating unrelated content.
+## Harness 0.2 deployment
+
+This fork accepts Harness `0.2.0-rc.1` in addition to its existing runtime peer ranges. Deploy all Harness peers from one runtime release; account authorization, settings persistence, and browser/desktop behavior remain owned by the existing integrations.

@@ -310,3 +310,6 @@ npx tsx scripts/e2e-visual.mts --keep   # 保留 scratch DSH_HOME 便于排查
 ### 已保存围栏的诊断
 
 `hero.tone` 的 `brand` 值归一化为 `accent`，已保存回答也适用。DOM 渲染通道对已完成但无效的围栏在原文旁显示具体错误；JSON 修正后清除诊断并恢复组件，无需重新生成其他内容。
+## Harness 0.2 部署
+
+本 fork 在原有运行时范围之外支持 Harness `0.2.0-rc.1`。部署时所有 Harness 依赖必须来自同一版本；账号授权、配置持久化和网页／桌面功能继续使用现有集成。
