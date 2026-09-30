@@ -319,6 +319,12 @@ export function completeFenceJson(raw: string): { text: string; repairs: number 
   let inString = false
   let escaped = false
   let repairs = commas.repairs
+  /**
+   * Offset in `out` right after the root value closed (0 = never closed).
+   * Anything the model appends after that — a stray `</p>`, a sentence, a
+   * second object — is not part of the JSON and must not defeat the repair.
+   */
+  let rootEnd = 0
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i]
     if (escaped) {
@@ -369,6 +375,7 @@ export function completeFenceJson(raw: string): { text: string; repairs: number 
       if (stack[stack.length - 1] === ch) {
         stack.pop()
         out += ch
+        if (stack.length === 0 && rootEnd === 0) rootEnd = out.length
       } else {
         // Mismatched closer (e.g. a `]` mistyped as `}`, or a duplicated
         // terminator): no legal JSON can contain it here, so skip it and let
@@ -400,11 +407,27 @@ export function completeFenceJson(raw: string): { text: string; repairs: number 
     out += stack.pop()
     repairs++
   }
-  if (repairs === 0) return null
+  // A body whose ONLY defect is trailing junk needs no repair of its own; it
+  // still has to reach the prefix fallback below.
+  if (repairs === 0 && rootEnd === 0) return null
   try {
     JSON.parse(out)
     return { text: out, repairs }
   } catch {
+    // A complete root value followed by junk (real-sample: the model closed the
+    // JSON and appended `</p>`). The whole-body parse refuses, but the balanced
+    // prefix IS the fence — adopt it instead of dropping every repair made
+    // above (tier-1 quote escaping lands in the same scan, so a body with BOTH
+    // an unescaped quote and trailing junk used to be unrecoverable).
+    if (rootEnd > 0) {
+      const trimmed = out.slice(0, rootEnd).trimEnd()
+      try {
+        JSON.parse(trimmed)
+        return { text: trimmed, repairs: repairs + 1 }
+      } catch {
+        // The prefix is not valid either: keep the existing behaviour.
+      }
+    }
     return null
   }
 }
