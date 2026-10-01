@@ -321,3 +321,5 @@ npx tsx scripts/e2e-visual.mts --keep   # 保留 scratch DSH_HOME 便于排查
 ## Harness 0.2 部署
 
 本 fork 在原有运行时范围之外支持 Harness `0.2.0-rc.1`。部署时所有 Harness 依赖必须来自同一版本；账号授权、配置持久化和网页／桌面功能继续使用现有集成。
+
+JSON 修复保留按语法识别引号和表格详情；分行对象属性之间缺少的逗号仍可修复，文本和标签中的换行会保留。

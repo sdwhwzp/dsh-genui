@@ -307,3 +307,5 @@ The hero tone `brand` is normalized to `accent`, including saved replies. Invali
 ## Harness 0.2 deployment
 
 This fork accepts Harness `0.2.0-rc.1` in addition to its existing runtime peer ranges. Deploy all Harness peers from one runtime release; account authorization, settings persistence, and browser/desktop behavior remain owned by the existing integrations.
+
+The JSON repair scanner retains grammar-aware quote handling and table details. Missing commas between object properties on separate lines remain repairable; multiline labels and text retain their line breaks.
