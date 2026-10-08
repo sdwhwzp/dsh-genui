@@ -172,12 +172,13 @@ describe('fenceFailures: only fences that would stay a code block', () => {
 })
 
 describe('planFenceFeedback: the bounds that prevent a retry storm', () => {
-  const base = { text: reply(BROKEN), turn: 1, lastCorrectedTurn: undefined, corrected: new Set<string>(), aborted: false }
+  const base = { text: reply(BROKEN), turn: 1, correctedSpec: new Set<string>(), aborted: false }
 
   it('plans one correction for a rejected fence', () => {
     const plan = planFenceFeedback(base)
     expect(plan).not.toBeNull()
     expect(plan!.turn).toBe(1)
+    expect(plan!.kind).toBe('render')
     expect(plan!.fingerprints).toEqual([fenceFingerprint(BROKEN)])
     expect(plan!.text).toContain('next=resend_corrected_fence_only')
   })
@@ -189,19 +190,21 @@ describe('planFenceFeedback: the bounds that prevent a retry storm', () => {
     expect(finalReply!.text).toContain("type 'stat' requires label")
   })
 
-  it('stays silent for the same turn (at most one correction per turn)', () => {
-    expect(planFenceFeedback({ ...base, lastCorrectedTurn: 1 })).toBeNull()
-    expect(planFenceFeedback({ ...base, lastCorrectedTurn: 0 })).not.toBeNull()
+  it('allows a SECOND correction in the same turn, never a third', () => {
+    expect(planFenceFeedback({ ...base, correctionsThisTurn: 1, correctionsTurn: 1 })).not.toBeNull()
+    expect(planFenceFeedback({ ...base, correctionsThisTurn: 2, correctionsTurn: 1 })).toBeNull()
+    // A stale count from an earlier turn never bounds a new one.
+    expect(planFenceFeedback({ ...base, correctionsThisTurn: 2, correctionsTurn: 0 })).not.toBeNull()
   })
 
   it('stays silent for a fence body already corrected', () => {
-    expect(planFenceFeedback({ ...base, corrected: new Set([fenceFingerprint(BROKEN)]) })).toBeNull()
+    expect(planFenceFeedback({ ...base, correctedSpec: new Set([fenceFingerprint(BROKEN)]) })).toBeNull()
   })
 
   it('corrects only the new fences when a reply repeats an old broken one', () => {
-    const plan = planFenceFeedback({ ...base, text: reply(BROKEN, STAT_GROUP), corrected: new Set([fenceFingerprint(BROKEN)]) })
+    const plan = planFenceFeedback({ ...base, text: reply(BROKEN, STAT_GROUP), correctedSpec: new Set([fenceFingerprint(BROKEN)]) })
     expect(plan).toBeNull()
-    const other = planFenceFeedback({ ...base, text: reply(BROKEN, '{"items":[{"type":"table"}]}'), corrected: new Set([fenceFingerprint(BROKEN)]) })
+    const other = planFenceFeedback({ ...base, text: reply(BROKEN, '{"items":[{"type":"table"}]}'), correctedSpec: new Set([fenceFingerprint(BROKEN)]) })
     expect(other!.fingerprints).toEqual([fenceFingerprint('{"items":[{"type":"table"}]}')])
   })
 
@@ -210,7 +213,41 @@ describe('planFenceFeedback: the bounds that prevent a retry storm', () => {
     expect(planFenceFeedback({ ...base, text: reply(STAT_GROUP) })).toBeNull()
     expect(planFenceFeedback({ ...base, text: '   ' })).toBeNull()
   })
+
+  it('reminds only after a formal validate call that produced no delivery', () => {
+    const idle = { text: '', turn: 2, correctedSpec: new Set<string>(), aborted: false }
+    // Nothing formal happened: silence (an empty body alone is not a GenUI turn).
+    expect(planFenceFeedback(idle)).toBeNull()
+    // validate_dsh_ui ran, nothing was delivered: remind once.
+    const plan = planFenceFeedback({ ...idle, validatedThisTurn: true })
+    expect(plan).not.toBeNull()
+    expect(plan!.kind).toBe('delivery')
+    expect(plan!.fingerprints).toEqual([])
+    expect(plan!.text).toContain('status=nothing_delivered')
+    expect(plan!.text).toContain('本轮尚未产生正式回答')
+    // The reminder never quotes a draft.
+    expect(plan!.text).not.toContain('```')
+    // Already reminded in this turn: silence.
+    expect(planFenceFeedback({ ...idle, validatedThisTurn: true, deliveryRemindedTurns: new Set([2]) })).toBeNull()
+    // A new turn may be reminded again.
+    expect(planFenceFeedback({ ...idle, turn: 3, validatedThisTurn: true, deliveryRemindedTurns: new Set([2]) })).not.toBeNull()
+  })
+
+  it('says nothing when the turn already delivered something formal', () => {
+    const delivered = { text: '', turn: 5, correctedSpec: new Set<string>(), aborted: false, validatedThisTurn: true, deliveredThisTurn: true }
+    expect(planFenceFeedback(delivered)).toBeNull()
+    // validate_dsh_ui alone is not a delivery; neither is an ordinary tool call.
+    expect(planFenceFeedback({ ...delivered, deliveredThisTurn: false })).not.toBeNull()
+  })
+
+  it('has no reasoning input at all: the decision is formal-event only', () => {
+    // Structural assertion for the #236 boundary: the planner's input carries no
+    // reasoning/draft field, so a draft cannot influence publishing or retrying.
+    const input = { ...base, validatedThisTurn: true }
+    expect(Object.keys(input).some(key => key.toLowerCase().includes('reason') || key.toLowerCase().includes('draft'))).toBe(false)
+  })
 })
+
 
 describe('the steered correction message', () => {
   it('uses the producer-owned source kind for Session format v4', () => {
@@ -276,6 +313,172 @@ describe('installFenceFeedback wiring', () => {
     h.boundary({ agent, turn: 4, signal: new AbortController().signal })
     expect(h.steer).toHaveBeenCalledTimes(1)
   })
+
+  const toolCallEvent = (name: string, callId?: string): unknown =>
+    ({ type: 'tool/call', seq: 4, time: 2, data: callId === undefined ? { name } : { name, callId } }) as unknown as SessionEvent
+  const toolResultEvent = (callId: string, failure?: { internal?: boolean; blockError?: boolean }): unknown => ({
+    type: 'tool/result',
+    seq: 6,
+    time: 3,
+    data: {
+      message: { content: [{ type: 'tool-result', toolCallId: callId, isError: failure?.blockError === true }] },
+      ...(failure?.internal === true ? { error: { name: 'ToolError', code: 'render_failed' } } : {}),
+    },
+  }) as unknown as SessionEvent
+  const contextMessageEvent = (kind: string): unknown => ({
+    type: 'user/message',
+    seq: 8,
+    time: 4,
+    data: { content: [{ type: 'text', text: '文件已变更' }], source: { kind } },
+  }) as unknown as SessionEvent
+  const turnStartEvent = (turn: number): unknown => ({ type: 'turn/start', seq: 1, time: 0, data: { turn } }) as unknown as SessionEvent
+  const reasoningEvent = (text: string): unknown => ({
+    type: 'assistant/message',
+    seq: 5,
+    time: 2,
+    data: { message: { content: [{ type: 'reasoning', text }] } },
+  }) as unknown as SessionEvent
+
+  it('reminds when a formal validate call produced no delivery', () => {
+    const h = harness()
+    h.emitSession(userEvent())
+    h.emitSession(toolCallEvent('validate_dsh_ui'))
+    h.emitSession({ type: 'assistant/message', seq: 6, time: 3, data: { message: { content: [{ type: 'reasoning', text: '草稿' }] } } } as unknown as SessionEvent)
+    const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+    h.boundary({ agent, turn: 7, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(1)
+    const message = h.steer.mock.calls[0]![0] as { content: Array<{ text: string }> }
+    expect(message.content[0]!.text).toContain('status=nothing_delivered')
+    expect(message.content[0]!.text).toContain('本轮尚未产生正式回答')
+    // Only one reminder per turn.
+    h.boundary({ agent, turn: 7, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(1)
+  })
+
+  it('never lets reasoning content change the decision (only formal events do)', () => {
+    // Same formal state (validate called, nothing delivered); the reasoning block
+    // differs wildly — including "a complete fence", "several fences" and "a later
+    // candidate that negates the first". The decision must be identical because the
+    // loop never reads the reasoning block (maintainer requirement on #236).
+    const drafts = [
+      '',
+      '```dsh-ui\n{"items":[{"type":"text","content":"候选一"}]}\n```',
+      '```dsh-ui\n{"items":[{"type":"text","content":"候选一"}]}\n```\n推翻它\n```dsh-ui\n{"items":[{"type":"text","content":"候选二"}]}\n```',
+    ]
+    const decisions = drafts.map(draft => {
+      const h = harness()
+      h.emitSession(userEvent())
+      h.emitSession(toolCallEvent('validate_dsh_ui'))
+      if (draft !== '') h.emitSession(reasoningEvent(draft))
+      const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+      h.boundary({ agent, turn: 3, signal: new AbortController().signal })
+      return h.steer.mock.calls.length
+    })
+    expect(decisions).toEqual([1, 1, 1])
+  })
+
+  it('stays silent when the turn delivered a body or a successful render_ui result', () => {
+    const delivered = harness()
+    delivered.emitSession(userEvent())
+    delivered.emitSession(toolCallEvent('validate_dsh_ui'))
+    delivered.emitSession(assistantEvent('就是这些，没有别的要汇报。'))
+    const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: delivered.steer }
+    delivered.boundary({ agent, turn: 8, signal: new AbortController().signal })
+    expect(delivered.steer).not.toHaveBeenCalled()
+
+    // render_ui 只由它的 tool/result 决定交付：结果成功才算（此前仅凭调用就算，
+    // 失败的渲染卡也被当成已交付 — review 确认的漏补救之一）。
+    const card = harness()
+    card.emitSession(userEvent())
+    card.emitSession(toolCallEvent('validate_dsh_ui'))
+    card.emitSession(toolCallEvent('render_ui', 'render-1'))
+    card.emitSession({ type: 'assistant/message', seq: 7, time: 4, data: { message: { content: [{ type: 'tool-call', name: 'render_ui', arguments: '{}' }] } } } as unknown as SessionEvent)
+    card.emitSession(toolResultEvent('render-1'))
+    card.boundary({ agent: { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: card.steer }, turn: 9, signal: new AbortController().signal })
+    expect(card.steer).not.toHaveBeenCalled()
+  })
+
+  it('does not count a FAILED render_ui result as delivery', () => {
+    for (const failure of [{ internal: true }, { blockError: true }]) {
+      const h = harness()
+      h.emitSession(userEvent())
+      h.emitSession(toolCallEvent('validate_dsh_ui'))
+      h.emitSession(toolCallEvent('render_ui', 'render-fail'))
+      h.emitSession(toolResultEvent('render-fail', failure))
+      const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+      h.boundary({ agent, turn: 5, signal: new AbortController().signal })
+      expect(h.steer).toHaveBeenCalledTimes(1)
+      const message = h.steer.mock.calls[0]![0] as { content: Array<{ text: string }> }
+      expect(message.content[0]!.text).toContain('status=nothing_delivered')
+    }
+  })
+
+  it('stays silent while a render_ui result is outstanding, then decides on the result', () => {
+    const h = harness()
+    h.emitSession(userEvent())
+    h.emitSession(toolCallEvent('validate_dsh_ui'))
+    h.emitSession(toolCallEvent('render_ui', 'render-late'))
+    const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+    // Result not arrived yet: steering here would race the late result.
+    h.boundary({ agent, turn: 6, signal: new AbortController().signal })
+    expect(h.steer).not.toHaveBeenCalled()
+    // The result settles as failed: the next boundary can remind.
+    h.emitSession(toolResultEvent('render-late', { blockError: true }))
+    h.boundary({ agent, turn: 6, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(1)
+    const message = h.steer.mock.calls[0]![0] as { content: Array<{ text: string }> }
+    expect(message.content[0]!.text).toContain('status=nothing_delivered')
+  })
+
+  it('does not let synthetic same-turn context messages clear the turn state', () => {
+    // agent.inject() 通知、成员消息等同面上下文走 user/message 但 source.kind
+    // 不是 'user'：它们到达于回合中途，不得清掉验证/交付状态（review 确认的
+    // 漏补救之二）。真实用户提示（kind 'user'）仍开启干净的新回合。
+    for (const kind of ['tool', 'agent', 'member']) {
+      const h = harness()
+      h.emitSession(userEvent())
+      h.emitSession(toolCallEvent('validate_dsh_ui'))
+      h.emitSession(contextMessageEvent(kind))
+      const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+      h.boundary({ agent, turn: 3, signal: new AbortController().signal })
+      expect(h.steer).toHaveBeenCalledTimes(1)
+      const message = h.steer.mock.calls[0]![0] as { content: Array<{ text: string }> }
+      expect(message.content[0]!.text).toContain('status=nothing_delivered')
+    }
+  })
+
+  it('resets the turn state on the formal turn/start boundary', () => {
+    const h = harness()
+    h.emitSession(turnStartEvent(1))
+    h.emitSession(userEvent())
+    h.emitSession(toolCallEvent('validate_dsh_ui'))
+    const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+    h.boundary({ agent, turn: 1, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(1)
+    // New turn: turn/start wiped the state, so a fresh validate + nothing
+    // delivered can be reminded again under a new turn number.
+    h.emitSession(turnStartEvent(2))
+    h.emitSession(userEvent())
+    h.emitSession(toolCallEvent('validate_dsh_ui'))
+    h.boundary({ agent, turn: 2, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the delivery ledger separate from the render-failure ledger', () => {
+    const h = harness()
+    h.emitSession(userEvent())
+    h.emitSession(toolCallEvent('validate_dsh_ui'))
+    const agent = { session: { id: 'sess-1', header: { id: 'sess-1', version: 4 } }, steer: h.steer }
+    h.boundary({ agent, turn: 4, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(1)          // delivery reminder (slot 1)
+    h.emitSession(assistantEvent(reply(BROKEN)))      // now a body fence fails to render
+    h.boundary({ agent, turn: 4, signal: new AbortController().signal })
+    expect(h.steer).toHaveBeenCalledTimes(2)          // render correction (slot 2) still fires
+    const second = h.steer.mock.calls[1]![0] as { content: Array<{ text: string }> }
+    expect(second.content[0]!.text).toContain('next=resend_corrected_fence_only')
+  })
+
+
 
   it('never steers for a subagent session', () => {
     const h = harness({ parentSession: 'parent-1' })

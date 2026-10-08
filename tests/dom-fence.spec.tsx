@@ -128,7 +128,9 @@ afterEach(() => {
 })
 
 describe('installDomFenceRenderer', () => {
-  it.each(['Code', 'Code block', '代码块'])('renders canonical GenUI from a generic %s banner', async label => {
+  it.each(['Code', 'Code block', '代码块', 'Код', 'Código', 'Codice', 'Kode'])('renders canonical GenUI from a generic %s banner', async label => {
+    // 标签集合刻意跨语系：本地化通用标题是宿主呈现文案，不是语言（issue #258）——
+    // 旧白名单只列英/中，俄语等 locale 下同一份围栏永远停在代码块。
     const row = assistantRow('generic-valid')
     const block = genericCodeBlock(VALID_SPEC, label)
     row.appendChild(block)
@@ -161,6 +163,23 @@ describe('installDomFenceRenderer', () => {
     } finally { dispose() }
   })
 
+  it('takes over a generic banner whose body is a spec followed by trailing junk', async () => {
+    // Real sample: the model leaked its tool-call template after the JSON and
+    // never closed the fence, so the host rendered everything as one code block.
+    // Content recognition must cut back to the balanced root instead of giving up.
+    const body = '{"items":[{"type":"table","columns":["观察项"],"rows":[["RL3b 转 pass"]]}]}'
+    const leaker = `${body}\n</x> parameter>\n</x> invoke>\n</x> calls>`
+    const row = assistantRow('generic-trailing-junk')
+    const block = genericCodeBlock(leaker)
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const dispose = installDomFenceRenderer(makeModernCtx('generic-session'), () => {})
+    try {
+      expect(await waitFor(() => block.hasAttribute('data-genui-rendered'))).toBe(true)
+      expect(await waitFor(() => row.querySelector('.genui-dom-fence')?.textContent?.includes('RL3b 转 pass') === true)).toBe(true)
+    } finally { dispose() }
+  })
+
   it.each([
     '{"name":"ordinary","items":[]}',
     '{"items":[{"type":"text","content":',
@@ -188,6 +207,21 @@ describe('installDomFenceRenderer', () => {
     row.appendChild(block)
     document.body.appendChild(row)
     const dispose = installDomFenceRenderer(makeModernCtx('explicit-session'), () => {})
+    try {
+      await tick()
+      expect(block.hasAttribute('data-genui-rendered')).toBe(false)
+      expect(row.querySelector('.genui-dom-fence')).toBeNull()
+    } finally { dispose() }
+  })
+
+  it.each(['json', 'JSON', 'python'])('keeps a banner-labeled %s block even with the generic banner marker', async language => {
+    // 反转后的 domLanguageOf（#258）：banner 标注了已知真实语言 ⇒ 明确不是通用块，
+    // 即使宿主同时给了 data-code-block-banner 也不内容接管（大小写不敏感）。
+    const row = assistantRow(`banner-language-${language}`)
+    const block = genericCodeBlock(VALID_SPEC, language)
+    row.appendChild(block)
+    document.body.appendChild(row)
+    const dispose = installDomFenceRenderer(makeModernCtx('banner-language-session'), () => {})
     try {
       await tick()
       expect(block.hasAttribute('data-genui-rendered')).toBe(false)
