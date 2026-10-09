@@ -263,7 +263,7 @@ describe('genui:fence section', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     const genui = await ctx.plugin(GenUI)
-    const session = { id: 'default-feedback', header: { id: 'default-feedback' } }
+    const session = { id: 'default-feedback', header: { id: 'default-feedback' }, snapshotEvents: () => [] }
     let steerCalls = 0
     const steer = () => { steerCalls += 1 }
     emitAssistantReply(ctx, session)
@@ -276,7 +276,7 @@ describe('genui:fence section', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     const genui = await ctx.plugin(GenUI, { fenceFeedback: false })
-    const session = { id: 'disabled-feedback', header: { id: 'disabled-feedback' } }
+    const session = { id: 'disabled-feedback', header: { id: 'disabled-feedback' }, snapshotEvents: () => [] }
     let steerCalls = 0
     const steer = () => { steerCalls += 1 }
     emitAssistantReply(ctx, session)

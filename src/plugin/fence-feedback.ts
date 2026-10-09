@@ -8,14 +8,10 @@
  *
  * The loop is deliberately narrow, matching the contract agreed on the issue:
  * - **默认开启。** 插件配置中的 `fenceFeedback: false` 可以关闭回合转向。
- * - **Bounded.** At most two corrections per turn (the second is reserved for
- *   the case where the first is answered with another reasoning-only turn) AND
- *   at most one per fence body per process, so a correction that is itself
- *   wrong cannot loop.
- * - **Reasoning-only recovery.** A turn whose body carries no fence but whose
- *   reasoning block composed one gets a correction that hands the body back
- *   verbatim; one real session had five such turns (the model kept ending the
- *   turn with the fence only in its thinking).
+ * - **修正上限。** 每个 turn 最多发送两条 correction；render failure 和 delivery reminder 共用上限，
+ *   每个 fence body 在当前回合中最多修正一次，新回合可重新修正。
+ * - **仅含 reasoning 的恢复。** 已验证的 GenUI 回合若只以 reasoning block 结束，使用宿主的
+ *   `EMPTY_RESPONSE` retry policy。
  * - **Never for subagents.** A child session's fence belongs to a parent reply.
  * - **Exact fence matching.** Only an info string of exactly `dsh-ui` opens a
  *   fence, so ` ```dsh-ui-dark `, indented prose, or a mention of the name is
@@ -32,8 +28,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionStore, UserMessage } from '@deepseek-ai/dsh-session'
 import { createHash, randomUUID } from 'node:crypto'
 import { droppedNodeFailure } from './genui-diagnostic.ts'
 import { resolveFence } from '../shared/fence-resolve.ts'
@@ -46,10 +41,8 @@ export const FEEDBACK_SOURCE_KIND = `plugin:${FEEDBACK_PLUGIN_NAME}` as const
 /** Marker prefix inside the correction text: `[genui-fence-repair #<fingerprint>]`. */
 const MARKER_PREFIX = '[genui-fence-repair #'
 /**
- * Corrections a single turn may receive. Two, not one: when the first (a fence
- * that failed to RENDER) is answered with another reasoning-only turn, the
- * second is the only chance to get it into the body. Bounded, and the per-fence
- * fingerprint ledger still prevents any repeat for the same fence body.
+ * 同一个 turn 内 fence-feedback correction 的共享上限。
+ * Render failure 和 nothing-delivered reminder 共用该 budget；各自的 ledger 独立阻止重复修正。
  */
 export const MAX_CORRECTIONS_PER_TURN = 2
 
@@ -214,7 +207,7 @@ interface SessionFeedback {
    * steering at the boundary instead of being guessed about.
    */
   pendingRenders: Set<string>
-  /** Fence fingerprints already corrected for a RENDER failure. */
+  /** Fence fingerprints already corrected for a RENDER failure in the current turn. */
   correctedSpec: Set<string>
   /**
    * Turns already given the "nothing was delivered" reminder. Kept separate from
@@ -226,6 +219,10 @@ interface SessionFeedback {
   correctionsThisTurn: number
   /** Turn {@link correctionsThisTurn} counts. */
   correctionsTurn: number | undefined
+  /** 从 session event 中恢复的当前 turn。 */
+  currentTurn: number | undefined
+  /** 已计入 correction budget 的 message ID。 */
+  accountedCorrectionMessageIds: Set<string>
 }
 
 /** What the pure planner needs to decide whether a correction may be sent. */
@@ -233,7 +230,7 @@ export interface FenceFeedbackPlanInput {
   /** Latest assistant reply text of the current turn. */
   readonly text: string
   readonly turn: number
-  /** Fence bodies already corrected for a render failure. */
+  /** Fence bodies already corrected for a render failure in the current turn. */
   readonly correctedSpec: ReadonlySet<string>
   /** Turns already given the delivery reminder. */
   readonly deliveryRemindedTurns?: ReadonlySet<number> | undefined
@@ -296,16 +293,15 @@ export function planFenceFeedback(input: FenceFeedbackPlanInput): FenceFeedbackP
 }
 
 /**
- * Correction for "the fence is in the reasoning block only".
+ * Correction for a validated GenUI turn that reached the boundary without any
+ * formal delivery.
  *
- * @param fingerprint - fingerprint of that fence body.
+ * @param turn - turn that reached the boundary.
+ * @param attempt - correction number within the shared turn budget.
  * @returns the message text to steer into the running turn.
  */
 export function missingBodyCorrectionText(turn: number, attempt = 1): string {
   const head = `${MARKER_PREFIX}turn-${turn}]\n\n[genui-fence-repair]\nstatus=nothing_delivered\nfences=0\nnext=emit_fence_in_body\nrepeat_rendered_content=false\nreply_language=conversation\n\n`
-  // NEVER quote a draft: a fence in the reasoning block is not proof that the
-  // model chose to deliver it (there may be several candidates, or a later one
-  // may supersede it). The reminder only says "nothing has been delivered yet".
   const emphasis = attempt <= 1 ? '' : `（第 ${attempt} 次提醒）`
   return `${head}本轮尚未产生正式回答，也没有通过支持的通道交付结果${emphasis}。请根据用户当前请求完成正式答复；需要 UI 时，在回答正文输出你最终选定的 dsh-ui 围栏，或明确调用 render_ui。可以修改或放弃此前候选；不能完成时，请在正文说明原因。\n`
 }
@@ -364,6 +360,43 @@ function textOfContent(content: unknown): string {
     .join('\n')
 }
 
+type RenderResultStatus = 'rendered' | 'invalid'
+
+/** 读取 render_ui result protocol 中明确返回的 status。 */
+function renderResultStatus(content: unknown): RenderResultStatus | undefined {
+  const lines = textOfContent(content).split(/\r?\n/u)
+  if (lines[0]?.trim() !== '[genui-render]') return undefined
+  for (const line of lines.slice(1)) {
+    if (line === 'status=rendered') return 'rendered'
+    if (line === 'status=invalid') return 'invalid'
+  }
+  return undefined
+}
+
+interface ObservedToolResult {
+  readonly callId: string
+  readonly isError: boolean
+  readonly content: unknown
+}
+
+/** 从 legacy wrapper 与 Session format v4 中提取 tool result 数据。 */
+function observedToolResult(message: unknown): ObservedToolResult | null {
+  if (typeof message !== 'object' || message === null) return null
+  const record = message as { toolCallId?: unknown; isError?: unknown; content?: unknown }
+  if (typeof record.toolCallId === 'string') {
+    return { callId: record.toolCallId, isError: record.isError === true, content: record.content }
+  }
+  if (!Array.isArray(record.content)) return null
+  const block = record.content.find(part => typeof part === 'object' && part !== null
+    && (part as { type?: unknown }).type === 'tool-result') as {
+      toolCallId?: unknown
+      isError?: unknown
+      content?: unknown
+    } | undefined
+  if (typeof block?.toolCallId !== 'string') return null
+  return { callId: block.toolCallId, isError: block.isError === true, content: block.content }
+}
+
 /** Tool whose SUCCESSFUL result is a formal delivery. */
 const DELIVERY_TOOL = 'render_ui'
 
@@ -389,9 +422,15 @@ function deliveredBodyText(content: unknown): boolean {
 }
 
 
-/** Fingerprints this loop already recorded inside a steered correction. */
-function markersIn(text: string): string[] {
-  const out: string[] = []
+interface FeedbackMarkers {
+  readonly renderFingerprints: string[]
+  readonly deliveryTurns: number[]
+}
+
+/** 分类当前与 legacy correction message 中的 marker。 */
+function feedbackMarkersIn(text: string): FeedbackMarkers {
+  const renderFingerprints: string[] = []
+  const deliveryTurns: number[] = []
   let cursor = 0
   while (cursor < text.length) {
     const current = text.indexOf(MARKER_PREFIX, cursor)
@@ -402,10 +441,23 @@ function markersIn(text: string): string[] {
     const index = useLegacy ? legacy : current
     const end = text.indexOf(']', index + prefix.length)
     if (end < 0) break
-    out.push(text.slice(index + prefix.length, end))
+    const marker = text.slice(index + prefix.length, end)
+    const turn = /^turn-(\d+)$/u.exec(marker)
+    if (turn !== null) deliveryTurns.push(Number(turn[1]))
+    else renderFingerprints.push(marker)
     cursor = end + 1
   }
-  return out
+  return { renderFingerprints, deliveryTurns }
+}
+
+/** 恢复一条持久化 correction 消耗的 turn budget。 */
+function accountReplayedCorrection(state: SessionFeedback, turn: number): void {
+  if (state.correctionsTurn !== turn) {
+    state.correctionsTurn = turn
+    state.correctionsThisTurn = 1
+    return
+  }
+  state.correctionsThisTurn = Math.min(MAX_CORRECTIONS_PER_TURN, state.correctionsThisTurn + 1)
 }
 
 /** Identify this plugin's source across current and migrated session shapes. */
@@ -435,6 +487,8 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
         deliveryRemindedTurns: new Set(),
         correctionsThisTurn: 0,
         correctionsTurn: undefined,
+        currentTurn: undefined,
+        accountedCorrectionMessageIds: new Set(),
       }
       sessions.set(sessionId, state)
     }
@@ -445,24 +499,25 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     sessions.delete(String(session.id))
   })
 
-  const resetTurnState = (state: SessionFeedback): void => {
+  const resetTurnState = (state: SessionFeedback, turn: number | undefined): void => {
     state.text = ''
     state.validatedThisTurn = false
     state.deliveredThisTurn = false
     state.pendingRenders.clear()
+    state.currentTurn = turn
   }
 
-  ctx.on('session/event', (session, event: SessionEvent) => {
+  const observeEvent = (session: Session, event: SessionEvent): void => {
     const sessionId = String(session.id)
     if (event.type === 'turn/start') {
       // The formal turn boundary: whatever happened in the previous turn is
       // settled and this turn starts clean. The `user/message` reset below is
       // only a fallback for direct prompts.
-      const state = sessions.get(sessionId)
-      if (state !== undefined) {
-        state.isSubagent = session.header.parentSession !== undefined
-        resetTurnState(state)
-      }
+      const state = stateOf(sessionId)
+      state.isSubagent = session.header.parentSession !== undefined
+      // 去重只约束当前回合，新一轮仍可修正相同错误。
+      state.correctedSpec.clear()
+      resetTurnState(state, (event.data as { turn?: number }).turn)
       return
     }
     if (event.type === 'assistant/message') {
@@ -492,35 +547,31 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
       return
     }
     if (event.type === 'tool/result') {
-      const data = event.data as {
-        message?: { content?: unknown }
-        error?: unknown
-      }
-      const content = data.message?.content
-      const block = Array.isArray(content)
-        ? content.find(part => typeof part === 'object' && part !== null && (part as { type?: unknown }).type === 'tool-result') as { toolCallId?: unknown; isError?: unknown } | undefined
-        : undefined
-      const callId = typeof block?.toolCallId === 'string' ? block.toolCallId : undefined
-      if (callId === undefined || block === undefined) return
+      const data = event.data as { message?: unknown; error?: unknown }
+      const result = observedToolResult(data.message)
+      if (result === null) return
       const state = stateOf(sessionId)
       state.isSubagent = session.header.parentSession !== undefined
-      if (!state.pendingRenders.delete(callId)) return
-      // Success = no internal failure identity AND the model-facing block is
-      // not an error. Anything else leaves the turn undelivered so the
-      // boundary can remind (a failed card is not an answer).
-      if (data.error === undefined && block.isError !== true) state.deliveredThisTurn = true
+      if (!state.pendingRenders.delete(result.callId)) return
+      if (data.error === undefined && result.isError !== true && renderResultStatus(result.content) === 'rendered') {
+        state.deliveredThisTurn = true
+      }
       return
     }
     if (event.type !== 'user/message') return
-    const data = event.data as { content?: unknown; source?: { kind?: unknown; plugin?: unknown } }
+    const data = event.data as { id?: unknown; content?: unknown; source?: { kind?: unknown; plugin?: unknown } }
     if (isFeedbackSource(data.source)) {
-      // Our own correction (re-observed after a plugin reload): adopt its
-      // render-failure fingerprints so a second boundary cannot repeat it.
-      const fingerprints = markersIn(textOfContent(data.content))
-      if (fingerprints.length === 0) return
+      const markers = feedbackMarkersIn(textOfContent(data.content))
+      if (markers.renderFingerprints.length === 0 && markers.deliveryTurns.length === 0) return
       const state = stateOf(sessionId)
       state.isSubagent = session.header.parentSession !== undefined
-      for (const fingerprint of fingerprints) state.correctedSpec.add(fingerprint)
+      for (const fingerprint of markers.renderFingerprints) state.correctedSpec.add(fingerprint)
+      for (const turn of markers.deliveryTurns) state.deliveryRemindedTurns.add(turn)
+      if (typeof data.id === 'string' && !state.accountedCorrectionMessageIds.has(data.id)) {
+        state.accountedCorrectionMessageIds.add(data.id)
+        const turn = markers.deliveryTurns[0] ?? state.currentTurn
+        if (turn !== undefined) accountReplayedCorrection(state, turn)
+      }
       return
     }
     // A DIRECT human prompt starts a new turn: the previous reply is settled.
@@ -532,9 +583,29 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     const state = sessions.get(sessionId)
     if (state !== undefined) {
       state.isSubagent = session.header.parentSession !== undefined
-      resetTurnState(state)
+      // turn/start 先于用户消息；清掉正文状态时保留正式回合身份。
+      resetTurnState(state, state.currentTurn)
     }
+  }
+
+  const restoreHistory = (session: Session): void => {
+    if (sessions.has(String(session.id))) return
+    for (const event of session.snapshotEvents()) observeEvent(session, event)
+  }
+  ctx.on('session/event', (session, event) => {
+    // 服务注入是异步的；首条实时事件也先接管历史，避免丢失旧纠错次数。
+    restoreHistory(session)
+    observeEvent(session, event)
   })
+  ctx.on('session/created', restoreHistory)
+  const restoreSessions = (sessionCtx: Context): void => {
+    const store = sessionCtx.reflect.get('sessions') as SessionStore | undefined
+    if (store === undefined) return
+    for (const session of store.list()) restoreHistory(session)
+  }
+  // 宿主不重播历史；安装时同步接管已有会话，异步注入负责晚到的服务。
+  restoreSessions(ctx)
+  ctx.inject(['sessions'], restoreSessions)
 
   ctx.on('llm/stream', (options, next) => {
     if (options.sessionId === undefined || options.purpose !== undefined) return next()
@@ -550,6 +621,7 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     if (agent.session.header.parentSession !== undefined) return
     const state = sessions.get(String(agent.session.id))
     if (state === undefined) return
+    state.currentTurn = turn
     // A render_ui result still outstanding could deliver (or fail) after this
     // boundary fires: steering now would race the late result, so stay silent
     // and let the next boundary decide on settled facts.
@@ -573,7 +645,9 @@ export function installFenceFeedback(ctx: Context, enabled: boolean): void {
     state.correctionsTurn = plan.turn
     state.correctionsThisTurn = usedThisTurn + 1
     try {
-      agent.steer(createFeedbackMessage(plan.text, agent.session.header.version))
+      const message = createFeedbackMessage(plan.text, agent.session.header.version)
+      state.accountedCorrectionMessageIds.add(message.id)
+      agent.steer(message)
     } catch (error) {
       ctx.logger?.warn?.(`dsh-genui: fence feedback steering failed (${error instanceof Error ? error.message : String(error)})`)
     }
