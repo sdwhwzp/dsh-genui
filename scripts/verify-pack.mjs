@@ -19,8 +19,12 @@ const { values: options } = parseArgs({
   strict: true,
 })
 
-const MAX_TARBALL = Number(process.env.GENUI_PACK_MAX_TARBALL ?? 3 * 1024 * 1024)
-const MAX_UNPACKED = Number(process.env.GENUI_PACK_MAX_UNPACKED ?? 10 * 1024 * 1024)
+// 2026-10-19: 字形目录（749 个 apps-sdk-ui glyph，MIT）把包体推过原上限：
+// +0.29 MB tarball / +1.80 MB unpacked，其中 lib/assets/icons.js 是运行时
+// 懒加载资源、src/client/icons/icon-data-full.ts 是它的可复现构建输入（issue #15）。
+// 两者都不可裁掉，因此把上限显式抬一档；若上游决定缩减字形集，同步回落这两个值。
+const MAX_TARBALL = Number(process.env.GENUI_PACK_MAX_TARBALL ?? 4 * 1024 * 1024)
+const MAX_UNPACKED = Number(process.env.GENUI_PACK_MAX_UNPACKED ?? 12 * 1024 * 1024)
 
 const pkgJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
@@ -39,7 +43,10 @@ for (const entry of Object.values(pkgJson.exports)) {
 // engine assets the node-half route serves to the browser on demand.
 const required = [
   'package.json', 'LICENSE', 'SKILL.md', 'README.md', 'CHANGELOG.md', 'demo-prompts.md', 'cordis.patch.yml',
-  'lib/assets/mermaid.js', 'lib/assets/three.js',
+  'lib/assets/mermaid.js', 'lib/assets/three.js', 'lib/assets/icons.js',
+  // 字形资产与它的两份说明文件：漏掉任何一个都意味着 npm 用户拿到坏包，
+  // 而主渲染路径在本地开发时照样是绿的。
+  'ICON-NAMES.md', 'THIRD_PARTY_NOTICES.md',
   // ECharts ships as two bundles: core (common presets) + full (the rest).
   'lib/assets/echarts-core.js', 'lib/assets/echarts-full.js',
   // plugin_check 发布规范（issue #15）：tarball 必须携带可复现构建所需的

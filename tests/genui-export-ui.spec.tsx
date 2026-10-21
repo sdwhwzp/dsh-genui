@@ -3,7 +3,7 @@ import { URL as NodeURL } from 'node:url'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ExportableGenuiBlock } from '../src/client/artifact/ExportableGenuiBlock.tsx'
-import { renderGenuiFence } from '../src/client/index.tsx'
+import { renderGenuiFence } from '../src/client/fence-render.tsx'
 import { GenuiPanel } from '../src/client/panel.tsx'
 import { applyPanelOperation, clearSessionPanel } from '../src/client/panel-store.ts'
 import { GenuiToolView } from '../src/client/toolview.tsx'
@@ -35,6 +35,15 @@ describe('artifact export entry points', () => {
     streaming.unmount()
     render(renderGenuiFence(raw, 'settled', { sessionId: 's', source: { id: 'source-1', order: [1, 0, 0] } }) as never)
     expect(screen.getByRole('button', { name: '导出' })).toBeTruthy()
+  })
+
+  it('renders the export entry as a borderless icon-only trigger', () => {
+    render(<ExportableGenuiBlock spec={{ items: [{ type: 'text', content: 'View' }] }} />)
+    const trigger = screen.getByRole('button', { name: '导出' })
+    expect(trigger.querySelector('svg')).toBeTruthy()
+    expect(trigger.textContent).toBe('')
+    expect(trigger.getAttribute('aria-label')).toBe('导出')
+    expect(trigger.getAttribute('title')).toBe('导出')
   })
 
   it('shows export for settled tool and panel content', () => {

@@ -1,19 +1,7 @@
 /**
- * The dsh-ui fence render pipeline, shared by both render channels:
- *
- * - **Registry channel** (contract hosts): the host's MarkdownText resolves
- *   ```dsh-ui fences through the fence-registry extension point and calls
- *   {@link renderGenuiFence} with a session-scoped context (sessionId + the
- *   settled source identity). An unrepairable body renders {@link FenceFallback}.
- * - **DOM channel** (pristine hosts, no extension point): the DOM observer
- *   (`dom-fence.ts`) finds stock code blocks labelled `dsh-ui` and mounts
- *   {@link renderResolvedFenceNode} into its own React root, wrapped in the
- *   plugin-owned action context. An unrepairable body returns `null` so the
- *   stock code block stays visible, with {@link FenceDiagnostic} mounted above
- *   it so the defect is never silent (issue #158).
- *
- * Structural types are declared locally on purpose: the context contract is
- * a data shape, and pristine hosts do not export the host-side type names.
+ * The dsh-ui fence render pipeline used by the DOM observer and renderer tests.
+ * An unrepairable body returns `null` so the stock code block stays visible,
+ * with {@link FenceDiagnostic} mounted above it (issue #158).
  */
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Key, type ReactNode } from 'react'
 import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -112,8 +100,7 @@ export function describeFenceFailure(raw: string, options: { settled?: boolean }
 /**
  * The visible diagnostic for a settled, unrenderable ```dsh-ui body.
  *
- * Shared by both channels: the registry channel renders it above its own
- * fallback code block, the DOM channel above the host's stock code block. A
+ * The DOM channel renders this above the host's stock code block. A
  * fence that keeps degrading to raw JSON must say why it degraded — the
  * console-only path left the defect invisible (issues #158/#172).
  *
@@ -239,10 +226,7 @@ export function renderResolvedFenceNode(raw: string, key: Key, context?: GenuiFe
 }
 
 /**
- * Registry-channel fence renderer (contract hosts): like the resolved node,
- * but an unrepairable body renders the fallback code block + settled
- * diagnostic — the host replaced its own block with our output — and an
- * unpublishable `panel:true` fence renders `null` (nothing in the flow).
+ * Render a complete fence body for renderer-level tests.
  */
 export function renderGenuiFence(raw: string, key: Key, context?: GenuiFenceContext): ReactNode {
   const spec = resolveGenuiSpec(raw, context)

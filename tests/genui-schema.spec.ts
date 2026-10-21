@@ -46,6 +46,87 @@ describe('GenUI runtime schema normalization', () => {
     expect(validateGenuiSpec({ type: 'text', content: 'bare component' })).toEqual({ ok: true, errors: [] })
   })
 
+  it('infers the six uniquely identified component types without changing the input', () => {
+    const spec = {
+      gap: 12,
+      items: [
+        { columns: ['Name'], rows: [['AGENTS.md']] },
+        { pairs: [{ key: 'status', value: 'active' }] },
+        { steps: [{ title: 'Review' }] },
+        { diffs: [{ path: 'a.ts', newText: 'updated' }] },
+        { meshes: [{ shape: 'box' }] },
+        { tabs: [{ label: 'Details', items: [{ columns: ['Name'], rows: [['README.md']] }] }] },
+      ],
+    }
+    const original = structuredClone(spec)
+    const normalized = normalizeGenuiSpec(spec)
+
+    expect(normalized.value).toEqual({
+      gap: 12,
+      items: [
+        { type: 'table', columns: ['Name'], rows: [['AGENTS.md']] },
+        { type: 'keyvalue', pairs: [{ key: 'status', value: 'active' }] },
+        { type: 'steps', steps: [{ title: 'Review' }] },
+        { type: 'diff', diffs: [{ path: 'a.ts', newText: 'updated' }] },
+        { type: 'scene3d', meshes: [{ shape: 'box' }] },
+        { type: 'tabs', tabs: [{ label: 'Details', items: [{ type: 'table', columns: ['Name'], rows: [['README.md']] }] }] },
+      ],
+    })
+    expect(processGenuiSpec(spec).errors).toEqual([])
+    expect(spec).toEqual(original)
+  })
+
+  it('processes the issue #325 table example with its original row data', () => {
+    const spec = {
+      gap: 12,
+      items: [{
+        columns: ['文件', '要点', '状态'],
+        rows: [
+          ['AGENTS.md', '全局基线', '在用'],
+          ['SOUL.md', '人格设定', '备份'],
+        ],
+      }],
+    }
+    const original = structuredClone(spec)
+    const normalized = normalizeGenuiSpec(spec)
+
+    expect(normalized.value).toEqual({
+      gap: 12,
+      items: [{ type: 'table', columns: spec.items[0]!.columns, rows: spec.items[0]!.rows }],
+    })
+    expect(processGenuiSpec(spec).errors).toEqual([])
+    expect(spec).toEqual(original)
+  })
+
+  it('infers uniquely shaped components nested in containers and list entries', () => {
+    const spec = {
+      items: [
+        ...['row', 'col', 'grid', 'card'].map(type => ({ type, items: [{ columns: ['Name'], rows: [['one']] }] })),
+        { type: 'list', items: [{ pairs: [{ key: 'status', value: 'ready' }] }] },
+      ],
+    }
+    const result = processGenuiSpec(spec)
+
+    expect(result.errors).toEqual([])
+    expect(result.normalized.items.slice(0, 4).map(container => container.items[0]?.type))
+      .toEqual(['table', 'table', 'table', 'table'])
+    expect(result.normalized.items[4]?.items[0]?.type).toBe('keyvalue')
+  })
+
+  it('does not infer ambiguous shapes or objects with an explicit invalid type', () => {
+    const nodes = [
+      { columns: ['Name'], rows: [['one']], tabs: [] },
+      { type: null, columns: ['Name'], rows: [['one']] },
+      { type: 123, columns: ['Name'], rows: [['one']] },
+    ]
+
+    for (const node of nodes) {
+      const raw = { items: [node] }
+      expect(normalizeGenuiSpec(raw).value).toEqual(raw)
+      expect(processGenuiSpec(raw).errors).toContain("items[0]: missing string 'type'")
+    }
+  })
+
   it('exposes runtime required, optional, rule, and validator metadata', () => {
     expect(COMPONENT_SCHEMAS.card.fields.title).toBe('string')
     expect(COMPONENT_SCHEMAS.card.optional.title).toBe('string')
@@ -130,6 +211,48 @@ describe('GenUI runtime schema normalization', () => {
       ['items[2].kind', 'kind', 'tone'],
       ['items[3].items', 'items', 'steps'],
     ])
+  })
+
+  it('carries the divider label through validation, aliases, and repair', () => {
+    expect(validateGenuiSpec({ items: [{ type: 'divider', label: '数据' }] }).ok).toBe(true)
+    expect(repairGenuiSpec({ items: [{ type: 'divider', label: '数据' }] })?.items[0])
+      .toEqual({ type: 'divider', label: '数据' })
+    // `title`/`text` normalize onto `label` with the stable alias warning.
+    const normalized = normalizeGenuiSpec({ items: [{ type: 'divider', title: '数据' }] })
+    expect(normalized.value).toEqual({ items: [{ type: 'divider', label: '数据' }] })
+    expect(normalized.warnings.map(warning => [warning.path, warning.field, warning.canonical]))
+      .toEqual([['items[0].title', 'title', 'label']])
+    // Overlong labels truncate in repair instead of dropping the node.
+    expect((repairGenuiSpec({ items: [{ type: 'divider', label: '标'.repeat(80) }] })?.items[0] as { label?: string }).label)
+      .toHaveLength(64)
+    // Undeclared fields on divider still surface as unknown-field diagnostics.
+    expect(diagnoseUnknownGenuiFields({ items: [{ type: 'divider', typo: 1 }] }))
+      .toMatchObject([{ path: 'items[0].typo', field: 'typo', type: 'divider' }])
+  })
+
+  it('carries the B1/B3/B4 anthology fields through validation and repair', () => {
+    // B1: display tier + align (legacy `center` stays valid alongside).
+    expect(validateGenuiSpec({ items: [
+      { type: 'text', size: 'display', content: '开篇', align: 'center' },
+      { type: 'text', content: '正文', center: true },
+    ] }).ok).toBe(true)
+    expect(validateGenuiSpec({ items: [{ type: 'text', content: 'x', align: 'middle' }] }).errors)
+      .toContain('items[0].align must be one of left, center, right')
+    expect(validateGenuiSpec({ items: [{ type: 'text', content: 'x', size: 'huge' }] }).errors)
+      .toContain('items[0].size must be one of display, h1, h2, h3, body, muted, caption')
+    const text = repairGenuiSpec({ items: [{ type: 'text', content: '开篇', size: 'display', align: 'right' }] })?.items[0]
+    expect(text).toEqual({ type: 'text', content: '开篇', size: 'display', align: 'right' })
+    // B3: card eyebrow survives repair and truncates like short labels.
+    expect(repairGenuiSpec({ items: [{ type: 'card', eyebrow: '第'.repeat(80), title: 'T', items: [] }] })?.items[0])
+      .toMatchObject({ eyebrow: '第'.repeat(64), title: 'T' })
+    // B4: image caption rides the same pipeline as alt.
+    expect(repairGenuiSpec({ items: [{ type: 'image', src: 'https://example.com/a.png', alt: 'A', caption: '来源：X' }] })?.items[0])
+      .toEqual({ type: 'image', src: 'https://example.com/a.png', alt: 'A', caption: '来源：X' })
+    // Undeclared fields on these components still surface as unknown-field warnings.
+    expect(diagnoseUnknownGenuiFields({ items: [
+      { type: 'card', items: [], caption: 'x' },
+      { type: 'image', src: 'https://example.com/a.png', eyebrow: 'x' },
+    ] }).map(d => d.path)).toEqual(['items[0].caption', 'items[1].eyebrow'])
   })
 
   it('normalizes aliases inside renderer-reachable table details before submission validation', () => {

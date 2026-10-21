@@ -1,5 +1,5 @@
 /**
- * DOM render channel: pure-plugin fence rendering for pristine hosts.
+ * DOM render channel: plugin-owned rendering of DSH conversation fences.
  *
  * Stock DSH renders every fenced code block through the shared CodeBlock
  * surface (stable class `md-code-block`, language label rendered as the
@@ -30,7 +30,7 @@
  *   1s sweep is the backstop.
  * - **Settled transition**: when `[data-streaming]` leaves the row, the
  *   mount re-renders with the stable source identity — the moment panels
- *   publish and durable state keys in (mirrors the registry channel's
+ *   publish and durable state keys in (mirrors inline fence rendering's
  *   settled-source semantics; streaming renders are identity-less).
  * - **Visible failure**: a settled block that stays a code block (malformed
  *   JSON, guard rejection, chart contract) mounts {@link FenceDiagnostic}
@@ -46,7 +46,7 @@
  * - Removal (branch switch, unload): each mount is unmounted with its root,
  *   and the stock block is restored.
  *
- * Security posture matches the registry channel: only code shipped in this
+ * Security posture: only code shipped in this
  * plugin's browser bundle mounts React roots, the model can only author
  * fence text, and unrepairable bodies remain visible in their host form.
  */
@@ -58,6 +58,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNode, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { GenuiActionContext, type GenuiActionHandler } from './action-context.ts'
+import { withFileLinkContext, type FileLinkAvailability, type FileLinkCordisContext } from './file-link-context.tsx'
 import css from './GenuiBlock.module.css'
 import { renderSvgFence } from './svg-fence.tsx'
 import { repairFenceJson, trimToBalancedRoot } from '../shared/fence-repair.ts'
@@ -67,14 +68,44 @@ import { validateCanonicalGenuiSpec } from './guard.ts'
 import { diagnoseUnknownGenuiFields } from './genui-runtime/diagnostics.ts'
 import { normalizeGenuiSpec } from './genui-runtime/normalize.ts'
 import { sourceFencesOfAssistant, sourceLanguageAt } from './source-fence.ts'
+import { normalizeFenceLanguage } from '../shared/fence-language.ts'
 
-/** Fence surfaces the channel can take over, newest host first: the shared
- * CodeBlock surface every rc.6+ markdown fence renders through
- * (`.md-code-block`) and the deepsuite-style surfaces some host builds
- * render instead (`.code-block` / `.code-block-small`). Surfaces with an
- * unlisted class are still found by the structural backstop (label + `<pre>`),
- * so this list is an optimization, not a hard contract. */
+/** 优先用宿主代码块内容的语义标记定位包装节点；隐藏语言或改变类名不能阻断
+ * 原始消息的围栏识别。类名也用于仍以这些表面呈现的代码块。 */
 const CODE_BLOCK_SELECTORS = '.md-code-block, .code-block, .code-block-small'
+
+/** 在同一处收集代码块包装节点，供候选扫描和原始围栏序号共用。 */
+function codeBlockSurfaces(scope: ParentNode): HTMLElement[] {
+  const surfaces = new Set(scope.querySelectorAll<HTMLElement>(CODE_BLOCK_SELECTORS))
+  for (const content of scope.querySelectorAll<HTMLElement>('[data-code-block-content]')) {
+    if (content.parentElement !== null) surfaces.add(content.parentElement)
+  }
+  return [...surfaces].sort((left, right) => left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)
+}
+
+/** 返回拥有代码内容语义节点、或已知代码块类名的最近包装节点。 */
+function closestCodeBlockSurface(
+  element: Element | null,
+  owners?: WeakMap<Element, Element | null>,
+): Element | null {
+  // 缓存仅在同一次同步候选扫描内复用，后续 DOM 更新会创建新的缓存。
+  const visited: Element[] = []
+  let owner: Element | null = null
+  for (let current = element; current !== null; current = current.parentElement) {
+    if (owners?.has(current)) {
+      owner = owners.get(current) ?? null
+      break
+    }
+    visited.push(current)
+    if (current.matches(CODE_BLOCK_SELECTORS)
+      || [...current.children].some(child => child.hasAttribute('data-code-block-content'))) {
+      owner = current
+      break
+    }
+  }
+  for (const current of visited) owners?.set(current, owner)
+  return owner
+}
 /** Marker attribute set on blocks this channel has taken over. */
 const PROCESSED = 'data-genui-rendered'
 /** The settled marker on AssistantMarkdown (absent = settled). */
@@ -83,9 +114,49 @@ const STREAMING = '[data-streaming]'
 const CONTAINER_CLASS = 'genui-dom-fence'
 /** Container class for the visible diagnostic of an unrenderable fence. */
 const DIAGNOSTIC_CLASS = 'genui-dom-fence-diagnostic'
+/** Host containers a takeover never reaches: our own mounted trees. Every
+ * discovery path shares these gates, so a changed node cannot enqueue what a
+ * full scan rejects. */
+const SURFACE_EXCLUDES = `.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui-svg-fence]`
+/** Same for tag-text spans: the host renders these rows outside the
+ * transcript (reasoning, tool output, sidebars, plugin panels). */
+const TAG_TEXT_EXCLUDES = `.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-chat-group-part="reasoning"], [data-tool], [data-sidebar-chat], [data-sidebar-right-session], [data-sidebar-right-panel], [data-panel-conversation], [data-plugin-panel]`
+/**
+ * Subtrees whose mutations cannot change a fence.
+ *
+ * The observer has to watch the whole body (a history load or a session switch
+ * replaces the transcript wholesale), but the composer types into a subtree no
+ * fence can live in, and this plugin's own containers are React's to mutate.
+ * Without this gate every keystroke and every panel interaction ran
+ * `repairSurgery` and scheduled a sweep, which on a long transcript is a frame
+ * of work per key.
+ */
+const IGNORED_MUTATION_SCOPE = `${SURFACE_EXCLUDES}, [data-composer-seat], [data-composer-input]`
 /** Slow sweep interval: the observer catches everything, this is the 1s
  * belt-and-braces pass (history loads, missed attribute batches). */
 const SWEEP_MS = 1000
+/** Cooperative per-sweep budget (ms) for discovery and takeover. Work yields
+ * between targets and candidates, not inside a subtree scan or block render;
+ * a once-deferred scan also runs to completion to avoid starvation. This is
+ * not a hard frame-time cap. Remaining candidates wait for the next sweep. */
+const SWEEP_BUDGET_MS = 8
+/** Rows re-checked by {@link rotationSweep}, and how many slow ticks apart
+ * those passes run. The observer sees structure, text, and `data-streaming`,
+ * so the belt-and-braces pass only has to cover changes it cannot see — in
+ * slices, and rarely: it re-queries every row in the document, which on a
+ * large transcript costs more than the work it guards. */
+const ROTATION_ROWS = 24
+const ROTATION_TICKS = 5
+/** Upper bound on nodes awaiting discovery. A larger set means a re-render
+ * storm; the rotation pass picks those blocks up on its own schedule. */
+const DIRTY_TARGET_LIMIT = 512
+/** Contexts a fence can appear in: a code body, a surface class, or a
+ * surface's content holder. Prose and layout changes fail this gate. */
+const CODE_CONTEXT = `pre, ${CODE_BLOCK_SELECTORS}, [data-code-block-content]`
+const NO_FILE_LINK_AVAILABILITY: FileLinkAvailability = {
+  subscribe: () => () => {},
+  getSnapshot: () => false,
+}
 
 /** Max ancestors walked from a `<pre>` to its fence surface root (banner +
  * pre holder). Most hosts put the pre directly under the surface; some wrap
@@ -167,12 +238,12 @@ function isTextNode(node: Node): node is Text {
 /** 读取 DSH Desktop 0.11.0 将 dsh-ui 围栏呈现为纯文本标签时的正文。 */
 function tagTextBodyOf(block: Element): string | null {
   if (block.tagName !== 'SPAN' || block.childElementCount !== 0) return null
-  const flowKind = block.closest('[data-chat-flow-kind]')?.getAttribute('data-chat-flow-kind')
-  if (flowKind !== undefined && flowKind !== null && flowKind !== 'assistant-step') return null
   const text = block.textContent?.trim() ?? ''
   const opening = '<dsh-ui>'
   const closing = '</dsh-ui>'
   if (!text.startsWith(opening) || !text.endsWith(closing)) return null
+  const flowKind = block.closest('[data-chat-flow-kind]')?.getAttribute('data-chat-flow-kind')
+  if (flowKind !== undefined && flowKind !== null && flowKind !== 'assistant-step') return null
   return text.slice(opening.length, -closing.length).trim()
 }
 
@@ -189,14 +260,14 @@ function infostringOf(block: Element): 'dsh-ui' | 'svg' | null {
   const pre = block.querySelector('pre')
   for (const el of block.querySelectorAll('*')) {
     if (el.childElementCount !== 0) continue
-    const lang = el.textContent?.trim()
+    const lang = normalizeFenceLanguage(el.textContent?.trim() ?? '')
     if (lang !== 'dsh-ui' && lang !== 'svg') continue
     if (pre !== null && pre.contains(el)) continue
     // A leaf label that belongs to a NESTED known code surface is that
     // surface's banner, not `block`'s own banner. Only accept labels whose
     // nearest known surface is `block` itself (or none — unknown surfaces
     // stay supported by the structural backstop).
-    const owner = el.closest(CODE_BLOCK_SELECTORS)
+    const owner = closestCodeBlockSurface(el)
     if (owner !== null && owner !== block) continue
     return lang
   }
@@ -229,13 +300,38 @@ const KNOWN_LANGUAGE_LABELS = new Set([
 /**
  * Read a language that the host still exposes in its CodeBlock banner.
  *
- * 只有标签命中 {@link KNOWN_LANGUAGE_LABELS} 才返回语言；空标签与本地化通用词
+ * 先规范化 GenUI 标签，再识别已知语言与明确的 `dsh-ui-*` 变体；空标签与本地化通用词
  * （«Код» / Código / 代码块 …）是宿主的**呈现文案**、不是语义，一律返回 null——
  * 此前它们会被当成真语言，连 ChatSnapshot 来源都被短路（issue #258）。
  */
 function domLanguageOf(block: Element): string | null {
-  const label = labelTextOf(block)
-  return label !== '' && KNOWN_LANGUAGE_LABELS.has(label.toLowerCase()) ? label : null
+  const label = normalizeFenceLanguage(labelTextOf(block))
+  // An explicit GenUI-like language that normalization did not accept is not
+  // a localized generic banner; never recover it from JSON-shaped content.
+  return label.toLowerCase().startsWith('dsh-ui') || KNOWN_LANGUAGE_LABELS.has(label.toLowerCase()) ? label : null
+}
+
+/**
+ * 解析一条宿主代码块的围栏语言，并吸收标签书写噪音。
+ *
+ * 宿主把 `dsh-ui` 写进快照时可能带上尾部标点（```dsh-ui> 这类手滑），mdast 会
+ * 原样保留在 `lang` 上。四处判定都要走同一个规范化，否则同一条围栏在「发现」
+ * 与「接管」两步得到相反结论，表现就是静默停在代码块上。
+ *
+ * `null`（围栏确实没有语言）与 `undefined`（来源不可用）必须保持区分：接管判定
+ * 只在后者才走内容识别兜底。
+ *
+ * @param block - 宿主代码块元素。
+ * @param sourceLanguage - 读取 ChatSnapshot 侧语言的回调（DOM 无语言时使用）。
+ * @returns 规范化后的语言、`null` 或 `undefined`。
+ */
+function resolveFenceLanguage(
+  block: Element,
+  sourceLanguage: (block: Element) => string | null | undefined,
+): string | null | undefined {
+  const domLanguage = tagTextBodyOf(block) !== null ? 'dsh-ui' : domLanguageOf(block)
+  const language = domLanguage ?? sourceLanguage(block)
+  return typeof language === 'string' ? normalizeFenceLanguage(language) : language
 }
 
 /** The banner label's raw text (empty while streaming — the host renders the
@@ -339,6 +435,43 @@ function implausibleLabeledAncestorOf(pre: HTMLElement, scope: ParentNode = docu
   return null
 }
 
+/** Why a candidate is not a fence. Reported rather than inlined so the full
+ * scan keeps its diagnostics and the mutation path reaches the same verdict. */
+type SurfaceRejection = 'nested' | 'plugin-owned' | 'implausible' | null
+
+/** The gate every surface candidate passes, whichever path found it. */
+function surfaceRejection(candidate: Element, owners?: WeakMap<Element, Element | null>): SurfaceRejection {
+  // Modifier classes can sit inside a surface (e.g. a `code-block-small`
+  // child of `code-block`): only the outermost matching element is a
+  // candidate, so a fence is never double-counted or taken over twice.
+  if (closestCodeBlockSurface(candidate.parentElement, owners) !== null) return 'nested'
+  if (candidate.closest(SURFACE_EXCLUDES) !== null) return 'plugin-owned'
+  // Message-level containers that happen to carry a surface class must not be
+  // taken over: hiding them hides the whole answer (issue #19).
+  if (!isPlausibleFenceSurface(candidate)) return 'implausible'
+  return null
+}
+
+/** Same policy for tag-text spans: a complete `<dsh-ui>` label in assistant
+ * prose is a fence, and nothing else is. */
+function isTakeoverTagText(span: Element, owners?: WeakMap<Element, Element | null>): boolean {
+  if (tagTextBodyOf(span) === null) return false
+  if (closestCodeBlockSurface(span, owners) !== null) return false
+  return span.closest(TAG_TEXT_EXCLUDES) === null
+}
+
+/** The outermost surface a node sits in. Mutation-driven discovery has to
+ * land on the candidate a full scan would pick, not on a modifier inside it. */
+function outermostSurfaceOf(node: Element | null): HTMLElement | null {
+  let candidate = closestCodeBlockSurface(node)
+  while (candidate !== null) {
+    const parent = closestCodeBlockSurface(candidate.parentElement)
+    if (parent === null) return candidate as HTMLElement
+    candidate = parent
+  }
+  return null
+}
+
 /**
  * Every dsh-ui fence surface or complete tag-text span under `scope`, in DOM order.
  * Known surface classes first (cheap, ordered), then a structural sweep —
@@ -346,39 +479,52 @@ function implausibleLabeledAncestorOf(pre: HTMLElement, scope: ParentNode = docu
  * unlisted surface shape still renders. The label + `<pre>` gates make the
  * structural pass false-positive-free: a random code surface without the
  * exact `dsh-ui` label is never taken over.
+ *
+ * With `includeScope` the scope element is a candidate too: a mutation hands
+ * over the node that changed, and the fence can be that node (an unknown-class
+ * surface appended to a row, a tag-text span in a wrapper that arrived whole).
  */
-function findFenceCandidates(scope: ParentNode = document): HTMLElement[] {
+function findFenceCandidates(scope: ParentNode = document, options: { includeScope?: boolean } = {}): HTMLElement[] {
+  const self = options.includeScope === true && scope instanceof Element ? scope : null
+  const surfaceOwners = new WeakMap<Element, Element | null>()
   const seen = new Set<HTMLElement>()
   const out: HTMLElement[] = []
-  for (const el of scope.querySelectorAll<HTMLElement>(CODE_BLOCK_SELECTORS)) {
-    // Modifier classes can sit inside a surface (e.g. a `code-block-small`
-    // child of `code-block`): only the outermost matching element is a
-    // candidate, so a fence is never double-counted or taken over twice.
-    if (el.parentElement !== null && el.parentElement.closest(CODE_BLOCK_SELECTORS) !== null) continue
-    if (el.closest(`.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui-svg-fence]`) !== null) continue
+  const surfaces = codeBlockSurfaces(scope)
+  if (self !== null && (self.matches(CODE_BLOCK_SELECTORS)
+    || [...self.children].some(child => child.hasAttribute('data-code-block-content')))) {
+    surfaces.unshift(self as HTMLElement)
+  }
+  for (const el of surfaces) {
     if (seen.has(el)) continue
-    // Message-level containers that happen to carry a surface class must
-    // not be taken over: hiding them hides the whole answer (issue #19).
-    if (!isPlausibleFenceSurface(el)) {
-      if (infostringOf(el) === 'dsh-ui') warnImplausibleSurface(el)
+    const rejection = surfaceRejection(el, surfaceOwners)
+    if (rejection !== null) {
+      if (rejection === 'implausible' && infostringOf(el) === 'dsh-ui') warnImplausibleSurface(el)
       continue
     }
     out.push(el)
     seen.add(el)
   }
-  for (const pre of scope.querySelectorAll<HTMLElement>('pre')) {
+  const pres = [...scope.querySelectorAll<HTMLElement>('pre')]
+  if (self !== null && self.tagName === 'PRE') pres.unshift(self as HTMLElement)
+  // A scan rooted at a changed node has to reach a surface that IS that node,
+  // and `surfaceOf` stops at the scope boundary: move the boundary up one hop
+  // for this scan only. The three checks below are the shared gate's three
+  // verdicts applied to the `<pre>` instead of to the surface it resolves to.
+  const surfaceScope: ParentNode = self === null ? scope : self.parentElement ?? self
+  for (const pre of pres) {
     // `<pre>` bodies inside a known surface were already handled by the
     // selector pass. Walking up from them again would climb PAST their own
     // (non-dsh-ui or dsh-ui) surface into a shared container — e.g. a
     // markdown root holding both a dsh-ui fence and a python block — and
     // the backstop would mislabel that whole container as a fence, hiding
     // every other code block with it (issue #13).
-    if (pre.closest(`${CODE_BLOCK_SELECTORS}, .${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui-svg-fence]`) !== null) continue
-    const surface = surfaceOf(pre, scope)
+    if (closestCodeBlockSurface(pre, surfaceOwners) !== null
+      || pre.closest(SURFACE_EXCLUDES) !== null) continue
+    const surface = surfaceOf(pre, surfaceScope)
     if (surface === null) {
       // Diagnose the issue #19 guard: a labeled ancestor that is NOT a code
       // surface (prose/multiple code bodies) was skipped on purpose.
-      const rejected = implausibleLabeledAncestorOf(pre, scope)
+      const rejected = implausibleLabeledAncestorOf(pre, surfaceScope)
       if (rejected !== null) warnImplausibleSurface(rejected)
       continue
     }
@@ -393,9 +539,11 @@ function findFenceCandidates(scope: ParentNode = document): HTMLElement[] {
     out.push(surface)
     seen.add(surface)
   }
-  for (const span of scope.querySelectorAll<HTMLElement>('span')) {
-    if (span.closest(`.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, ${CODE_BLOCK_SELECTORS}, [data-chat-group-part="reasoning"], [data-tool], [data-sidebar-chat], [data-sidebar-right-session], [data-sidebar-right-panel], [data-panel-conversation], [data-plugin-panel]`) !== null) continue
-    if (tagTextBodyOf(span) === null) continue
+  const spans = [...scope.querySelectorAll<HTMLElement>('span')]
+  if (self !== null && self.tagName === 'SPAN') spans.unshift(self as HTMLElement)
+  for (const span of spans) {
+    // 普通文本不进入祖先和代码块归属查找。
+    if (!isTakeoverTagText(span, surfaceOwners)) continue
     out.push(span)
   }
   return out.sort((left, right) => left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)
@@ -454,7 +602,7 @@ function fenceIndexOf(ctx: Context, row: Element, block: Element, sourceLanguage
     let fallbackIndex = 0
     for (const candidate of findFenceCandidates(scope)) {
       if (candidate.closest(STREAMING) !== null) continue
-      const language = tagTextBodyOf(candidate) !== null ? 'dsh-ui' : domLanguageOf(candidate) ?? sourceLanguage(candidate)
+      const language = resolveFenceLanguage(candidate, sourceLanguage)
       if (language !== 'dsh-ui' && !(language === undefined && isGenericGenuiFence(candidate, rawOf(candidate)))) continue
       fallbackIndex += 1
       if (candidate === block) return fallbackIndex
@@ -466,7 +614,7 @@ function fenceIndexOf(ctx: Context, row: Element, block: Element, sourceLanguage
     if (candidate.closest(STREAMING) !== null) continue
     if (candidate.closest(ASSISTANT_FLOW_ROW) !== row) continue
     if (candidate.closest('[data-chat-group-part="reasoning"]') !== null) continue
-    const language = tagTextBodyOf(candidate) !== null ? 'dsh-ui' : domLanguageOf(candidate) ?? sourceLanguage(candidate)
+    const language = resolveFenceLanguage(candidate, sourceLanguage)
     if (language !== 'dsh-ui' && !(language === undefined && isGenericGenuiFence(candidate, rawOf(candidate)))) continue
     index += 1
     if (candidate === block) return index
@@ -476,8 +624,8 @@ function fenceIndexOf(ctx: Context, row: Element, block: Element, sourceLanguage
 
 /** Return outer host Markdown code surfaces in one assistant row's DOM order. */
 function hostFenceBlocksOf(row: Element): HTMLElement[] {
-  return [...row.querySelectorAll<HTMLElement>(CODE_BLOCK_SELECTORS)].filter(candidate => {
-    if (candidate.parentElement?.closest(CODE_BLOCK_SELECTORS) !== null) return false
+  return codeBlockSurfaces(row).filter(candidate => {
+    if (closestCodeBlockSurface(candidate.parentElement) !== null) return false
     if (candidate.closest(`.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}, [data-genui], [data-genui-svg-fence]`) !== null) return false
     if (candidate.closest('[data-chat-group-part="reasoning"], [data-tool], [data-sidebar-chat], [data-sidebar-right-session], [data-sidebar-right-panel], [data-panel-conversation], [data-plugin-panel]') !== null) return false
     if (candidate.closest(ASSISTANT_FLOW_ROW) !== row) return false
@@ -504,13 +652,18 @@ export function sourceLanguageOf(ctx: Context, block: Element): string | null | 
 }
 
 /** Cache each row's Markdown parse for one sweep and retain confirmed opening-line languages per host block. */
-function createSourceLanguageResolver(ctx: Context): { beginSweep: () => void; get: (block: Element) => string | null | undefined } {
+function createSourceLanguageResolver(ctx: Context): {
+  beginSweep: () => void
+  get: (block: Element) => string | null | undefined
+  isSessionUnavailable: () => boolean
+} {
   const stableLanguages = new WeakMap<Element, { sessionId: SessionId; nodeKey: string; language: string | null }>()
   let sweepLanguages = new Map<Element, string | null | undefined>()
   let parsedNodes = new Map<string, ReturnType<typeof sourceFencesOfAssistant>>()
   let sessionId: SessionId | undefined
   let chat: ChatSnapshot | undefined
   let chatRead = false
+  let sessionUnavailable = false
 
   return {
     beginSweep() {
@@ -519,13 +672,23 @@ function createSourceLanguageResolver(ctx: Context): { beginSweep: () => void; g
       sessionId = undefined
       chat = undefined
       chatRead = false
+      sessionUnavailable = false
+    },
+    isSessionUnavailable() {
+      return sessionUnavailable
     },
     get(block) {
       if (sweepLanguages.has(block)) return sweepLanguages.get(block)
       const row = block.closest<HTMLElement>(`${ASSISTANT_FLOW_ROW}[data-chat-node-key]`)
       if (row === null || row.dataset.chatGroupPart === 'reasoning') return undefined
       const nodeKey = row.dataset.chatNodeKey
-      const activeSessionId = sessionIdOfForSource(ctx)
+      const sourceSession = sourceSessionOf(ctx)
+      if (!sourceSession.available) {
+        sessionUnavailable = true
+        sweepLanguages.set(block, undefined)
+        return undefined
+      }
+      const activeSessionId = sourceSession.sessionId
       if (!nodeKey || activeSessionId === undefined) return undefined
 
       const stable = stableLanguages.get(block)
@@ -570,9 +733,25 @@ export function hostFenceIndexOf(row: Element, block: Element): number {
   return hostFenceBlocksOf(row).indexOf(block as HTMLElement)
 }
 
+/** Read the viewed session and report when Cordis rejects access to its Context. */
+function sourceSessionOf(ctx: Context): { available: true; sessionId: SessionId | undefined } | { available: false } {
+  try {
+    return {
+      available: true,
+      sessionId: resolveViewedSessionId(
+        ctx.sessions.list.getSnapshot(),
+        sessionId => ctx.sessions.retainInfo(sessionId),
+      ),
+    }
+  } catch {
+    return { available: false }
+  }
+}
+
 /** Read the currently viewed session for source Markdown lookup. */
 function sessionIdOfForSource(ctx: Context): SessionId | undefined {
-  return resolveViewedSessionId(ctx.sessions.list.getSnapshot())
+  const sourceSession = sourceSessionOf(ctx)
+  return sourceSession.available ? sourceSession.sessionId : undefined
 }
 
 /** Read uiConversation as an optional service so Cordis does not require a hard inject. */
@@ -650,6 +829,7 @@ function anchorSeqOf(row: Element): number {
 export function installDomFenceRenderer(
   ctx: Context,
   sendAction: (sessionId: SessionId, action: string, payload: Record<string, unknown>) => void,
+  fileLinkAvailability: FileLinkAvailability = NO_FILE_LINK_AVAILABILITY,
 ): () => void {
   if (typeof document === 'undefined') return () => {}
   driftWarned = false
@@ -664,13 +844,51 @@ export function installDomFenceRenderer(
   let activeChatSession: SessionId | undefined
   let unsubscribeChat: (() => void) | undefined
   const sourceLanguages = createSourceLanguageResolver(ctx)
+  /** Nodes changed since the last sweep, awaiting discovery; the value says
+   * whether the whole new subtree has to be scanned (structure or attribute
+   * change) or only the code context around the node (text change). Discovery
+   * waits for the sweep: inside the mutation microtask a session switch would
+   * scan a whole transcript before the next paint. */
+  const dirtyTargets = new Map<Node, boolean>()
+  /** Discovered fence candidates awaiting takeover, oldest discovery first. */
+  const pendingCandidates = new Set<HTMLElement>()
+  /** Queue dedupe. Dropped again when a block is evaluated, so a later change
+   * to a block that stayed a code block re-queues it. */
+  const queuedCandidates = new WeakSet<Element>()
+  /** Blocks the DOM alone cannot name: their language may still come from the
+   * session source (a restored transcript rendered before its rows arrive in
+   * the ChatSnapshot, a history page whose nodes are not loaded yet). Kept so a
+   * source change re-checks them. */
+  const awaitingSource = new Set<HTMLElement>()
+  /** Set by the ChatSnapshot subscription; consumed by the next sweep. */
+  let sourceChanged = false
+  /** Targets whose subtree scan the budget deferred once. They scan on the
+   * next sweep regardless, so a page that stays slow cannot starve discovery. */
+  const deferredScans = new WeakSet<Node>()
+  /** Rows already consumed from the transcript tail by the rotation pass. */
+  let rotationNext = 0
 
-  const sessionIdOf = (): SessionId | undefined => {
-    try {
-      return resolveViewedSessionId(ctx.sessions.list.getSnapshot())
-    } catch {
-      return undefined
-    }
+  /** Apply both plugin contexts to every actual GenUI root render. */
+  function wrapFenceNode(node: ReactNode, context: GenuiFenceContext, handler: GenuiActionHandler, streaming: boolean): ReactNode {
+    const actionTree = <GenuiActionContext.Provider value={handler}>{node}</GenuiActionContext.Provider>
+    return withFileLinkContext(
+      ctx as unknown as FileLinkCordisContext,
+      fileLinkAvailability,
+      context.sessionId,
+      streaming,
+      actionTree,
+    )
+  }
+
+  const sessionIdOf = (): SessionId | undefined => sessionIdOfForSource(ctx)
+  let lastAvailableSessionId = sessionIdOf()
+
+  /** Keep a mounted fence's React identity stable while Cordis temporarily denies session access. */
+  function sessionIdForRender(preserveWhenUnavailable: boolean): SessionId | undefined {
+    const sourceSession = sourceSessionOf(ctx)
+    if (!sourceSession.available) return preserveWhenUnavailable ? lastAvailableSessionId : undefined
+    lastAvailableSessionId = sourceSession.sessionId
+    return sourceSession.sessionId
   }
 
   /** Retry ChatSnapshot subscription while the active session binding is unavailable. */
@@ -681,14 +899,20 @@ export function installDomFenceRenderer(
       activeChatSession = sessionId
     }
     if (sessionId !== undefined && unsubscribeChat === undefined) {
-      unsubscribeChat = chatSourceOf(ctx, sessionId)?.subscribe(schedule)
+      unsubscribeChat = chatSourceOf(ctx, sessionId)?.subscribe(() => {
+        // The source is a discovery trigger of its own: the transcript can be
+        // on screen before its rows exist in the snapshot, and only the source
+        // can name an unlabelled surface dsh-ui.
+        sourceChanged = true
+        schedule()
+      })
     }
   }
 
   /** Render context for a block: session always; the stable source identity
    * only once settled — streaming renders are identity-less (no panel
-   * publish, no durable state), mirroring the registry channel. */
-  function contextOf(row: Element, block: Element, settled: boolean): { key: Key; context: GenuiFenceContext } {
+   * publish, no durable state), matching inline fence behavior. */
+  function contextOf(row: Element, block: Element, settled: boolean, preserveSessionIdentity = false): { key: Key; context: GenuiFenceContext } {
     if (settled && row.getAttribute('data-chat-anchor-key') === null) {
       // Safari / fallback render path: the host omitted the row anchor (the
       // attribute is a React key that React drops when undefined). Fences
@@ -699,7 +923,7 @@ export function installDomFenceRenderer(
     const fenceIndex = fenceIndexOf(ctx, row, block, sourceLanguages.get)
     const anchorKey = row.getAttribute('data-chat-anchor-key') ?? 'unknown'
     const key = `dom:${anchorKey}:${fenceIndex}` as Key
-    const sessionId = sessionIdOf()
+    const sessionId = sessionIdForRender(preserveSessionIdentity)
     const context: GenuiFenceContext = {
       ...(sessionId === undefined ? {} : { sessionId }),
       ...(settled ? { source: { id: key as string, order: [anchorSeqOf(row), 0, fenceIndex] as const } } : {}),
@@ -817,11 +1041,9 @@ export function installDomFenceRenderer(
     if (block.hasAttribute(PROCESSED)) return
     const row = rowOf(block)
     const settled = isSettled(block)
-    const domLanguage = tagTextBodyOf(block) !== null ? 'dsh-ui' : domLanguageOf(block)
-    const sourceLanguage = domLanguage === null ? sourceLanguages.get(block) : undefined
-    const language = domLanguage ?? sourceLanguage
+    const language = resolveFenceLanguage(block, candidate => sourceLanguages.get(candidate))
     const raw = rawOf(block)
-    // DSH 0.1.7-alpha.2 会在最终 DOM 隐去不支持高亮的语言；公开 ChatSnapshot 的原始 Markdown 是 language 来源。
+    // DSH 可能在最终 DOM 隐去不支持高亮的语言；公开 ChatSnapshot 的原始 Markdown 是 language 来源。
     // 内容识别只在 source 暂不可用且 assistant 已结束时兜底，不覆盖已确认的 language 或无 language fence。
     const genericGenui = language === undefined && settled && isGenericGenuiFence(block, raw)
     if (language !== 'dsh-ui' && language !== 'svg' && !genericGenui) return
@@ -868,7 +1090,7 @@ export function installDomFenceRenderer(
     }
     try {
       const handler: GenuiActionHandler = (action, payload) => sendActionForBlock(block, action, payload)
-      root.render(<GenuiActionContext.Provider value={handler}>{payload}</GenuiActionContext.Provider>)
+      root.render(wrapFenceNode(payload, context, handler, !settled))
     } catch (error) {
       try {
         root.unmount()
@@ -882,6 +1104,190 @@ export function installDomFenceRenderer(
     block.style.display = 'none'
     block.setAttribute(PROCESSED, '')
     mounts.set(block, { root, container, block, lastRaw: raw, lastSettled: settled, language: acceptedLanguage, lastNode: payload, skeleton: node === null })
+  }
+
+  /** Queue a block for takeover. A block already taken over is skipped here:
+   * its mounted replacement is maintained by the sweep's mount pass, not by a
+   * second takeover. */
+  function enqueueCandidate(block: Element | null | undefined): void {
+    if (block === null || block === undefined) return
+    if (block.hasAttribute(PROCESSED) || queuedCandidates.has(block)) return
+    queuedCandidates.add(block)
+    pendingCandidates.add(block as HTMLElement)
+  }
+
+  /**
+   * Turn one changed node into fence candidates, scoped to the change: the
+   * surface the node belongs to (a streaming body grows in place), the
+   * tag-text span DSH Desktop presents a fence body as, and — for structural
+   * changes — the new subtree itself. A streamed token of ordinary prose costs
+   * one native `closest()` call; nothing walks the transcript.
+   *
+   *
+   * Every candidate leaves through the gates a full scan applies: a mutation
+   * must not reach a block the scan refuses (a message container with prose
+   * next to the fence, a reasoning or tool row, plugin-owned DOM).
+   *
+   * @param target - the changed node (text, element, or added subtree root).
+   * @param structural - true when the change can add a whole new subtree
+   *     (childList, `data-streaming`), false for text-node growth.
+   * @param deadline - sweep deadline in `performance.now()` terms; the
+   *     subtree scan is deferred (the target stays dirty) once it has passed.
+   */
+  function enqueueMutationTarget(target: Node, structural: boolean, deadline: number): void {
+    const element = target instanceof Element ? target : target.parentElement
+    if (element === null) return
+    // Plugin-owned DOM (our containers and diagnostics) holds no host fence.
+    if (element.closest(SURFACE_EXCLUDES) !== null) return
+    if (element.tagName === 'SPAN' && isTakeoverTagText(element)) enqueueCandidate(element)
+    // A mid-body text update: the outermost surface the node sits in — the
+    // same candidate the scan would pick — plus the structural backstop for
+    // hosts whose surface class this build does not know.
+    const context = element.closest(CODE_CONTEXT)
+    if (context !== null) {
+      const surface = outermostSurfaceOf(context)
+      if (surface !== null && surfaceRejection(surface) === null) enqueueCandidate(surface)
+      const pre = element.closest<HTMLElement>('pre')
+      if (pre !== null) {
+        const labeled = surfaceOf(pre)
+        if (labeled !== null && surfaceRejection(labeled) === null) enqueueCandidate(labeled)
+      }
+    }
+    if (!structural) return
+    // A changed node can carry a fence the node itself is not inside yet: a row
+    // or a wrapper that arrived whole. `includeScope` makes the scan cover the
+    // node and its descendants, so no shape depends on the rotation pass.
+    if (performance.now() >= deadline) {
+      // Budget spent: scanning waits for the next sweep instead of running
+      // unbounded inside this one, and the target stays dirty.
+      deferredScans.add(target)
+      dirtyTargets.set(target, structural)
+      return
+    }
+    const candidates = findFenceCandidates(element, { includeScope: true })
+    // Newest first: a transcript-sized target (session switch, history load)
+    // queues the whole conversation at once, and the tail in view has to be
+    // mounted before the scrollback.
+    for (let index = candidates.length - 1; index >= 0; index -= 1) enqueueCandidate(candidates[index])
+  }
+
+  /** Discovery for the nodes the observer collected, inside the sweep budget. */
+  function resolveDirtyTargets(deadline: number): void {
+    for (const [target, structural] of dirtyTargets) {
+      if (performance.now() >= deadline) return
+      dirtyTargets.delete(target)
+      // A removed subtree holds nothing left to take over.
+      if (!target.isConnected) continue
+      // A target the budget deferred once scans now whatever the clock says:
+      // deferral bounds one sweep, it never starves the queue.
+      const force = deferredScans.delete(target)
+      enqueueMutationTarget(target, structural, force ? Number.POSITIVE_INFINITY : deadline)
+    }
+  }
+
+  /** Take queued candidates over, inside the sweep budget; the rest stays
+   * queued for the next sweep. */
+  function drainCandidates(deadline: number): void {
+    for (const block of pendingCandidates) {
+      if (performance.now() >= deadline) return
+      pendingCandidates.delete(block)
+      // "Queued" only holds until a block has been evaluated: a block that
+      // stays a stock code block has to be re-discovered by the next change
+      // to it (a streaming body growing a token at a time).
+      queuedCandidates.delete(block)
+      if (!block.isConnected) continue
+      // Discovery is not a lease: source retries and frame yields let the
+      // host move a candidate or turn its surface into a message container.
+      // Reapply the same local gates immediately before first takeover. The
+      // mounted-block maintenance path is unchanged, including streaming.
+      const eligible = tagTextBodyOf(block) !== null
+        ? isTakeoverTagText(block)
+        : surfaceRejection(block) === null
+      if (!eligible) {
+        awaitingSource.delete(block)
+        continue
+      }
+      renderBlock(block)
+      noteSourceDecision(block)
+    }
+  }
+
+  /** Remember (or forget) a candidate the DOM cannot name: the session source
+   * may still call it dsh-ui once its snapshot resolves. */
+  function noteSourceDecision(block: HTMLElement): void {
+    if (block.hasAttribute(PROCESSED)
+        || tagTextBodyOf(block) !== null
+        || domLanguageOf(block) !== null
+        || sourceLanguages.get(block) !== undefined) {
+      awaitingSource.delete(block)
+      return
+    }
+    if (awaitingSource.size >= DIRTY_TARGET_LIMIT) return
+    awaitingSource.add(block)
+  }
+
+  /** Re-check the blocks that were waiting on source data. */
+  function requeueAwaitingSource(): void {
+    for (const block of Array.from(awaitingSource)) {
+      awaitingSource.delete(block)
+      if (!block.isConnected || block.hasAttribute(PROCESSED)) continue
+      enqueueCandidate(block)
+    }
+  }
+
+  /** Discovery or takeover left work behind: keep the frame loop going so a
+   * restored transcript drains over the next frames instead of waiting for the
+   * slow tick. */
+  function keepDraining(): void {
+    if (pendingCandidates.size > 0 || dirtyTargets.size > 0) schedule()
+  }
+
+  /** Record a changed node. Cheap by design: the discovery that turns it into
+   * candidates belongs to the sweep, not to the mutation microtask. */
+  function markDirty(node: Node, structural: boolean): void {
+    if (disposed) return
+    const element = node instanceof Element ? node : node.parentElement
+    if (element === null) return
+    if (element.closest(`.${CONTAINER_CLASS}, .${DIAGNOSTIC_CLASS}`) !== null) return
+    const known = dirtyTargets.get(node)
+    if (known === undefined) {
+      if (dirtyTargets.size >= DIRTY_TARGET_LIMIT) return
+      dirtyTargets.set(node, structural)
+      return
+    }
+    // A node that changed structurally after a text-only change needs the
+    // subtree pass as well.
+    if (structural && !known) dirtyTargets.set(node, true)
+  }
+
+  /**
+   * Belt-and-braces pass for what the observer cannot see: it watches
+   * structure, text, and `data-streaming`, so a host that re-classes an
+   * existing block into a code surface fires nothing at all. Rows are
+   * re-checked in slices on the slow tick, so the transcript is covered over a
+   * rotation instead of by one full-document scan per sweep. A host without
+   * rows (a bare span in a projection) has nothing stable to rotate over and
+   * stays covered by the mutation path alone.
+   */
+  function rotationSweep(deadline: number): void {
+    const rows = document.querySelectorAll<HTMLElement>(FLOW_ROW)
+    const total = rows.length
+    if (total === 0) return
+    const step = Math.min(ROTATION_ROWS, total)
+    let visited = 0
+    for (let offset = 0; offset < step; offset += 1) {
+      // This pass is belt-and-braces work: it yields the frame like every
+      // other discovery pass, and the rest of the slice waits for the next
+      // rotation tick.
+      if (performance.now() >= deadline) break
+      // Walk backwards from the transcript tail: the newest row is the one in
+      // view while a fence is being written.
+      const row = rows[total - 1 - ((rotationNext + offset) % total)]
+      if (row === undefined) continue
+      for (const candidate of findFenceCandidates(row)) enqueueCandidate(candidate)
+      visited = offset + 1
+    }
+    rotationNext = (rotationNext + visited) % total
   }
 
   /** Pre-paint repair: the host's React re-renders during streaming can wipe
@@ -936,12 +1342,15 @@ export function installDomFenceRenderer(
   }
 
   /** Sweep: drop dead mounts, re-render changed bodies (streaming growth and
-   * the streaming→settled transition), repair surgery, then take over every
-   * new dsh-ui block — settled or still streaming. */
+   * the streaming→settled transition), repair surgery, re-check what the
+   * session source may have unlocked, then take over the dsh-ui blocks
+   * discovery queued — settled or still streaming. */
   function sweep(): void {
     if (disposed) return
     sourceLanguages.beginSweep()
-    const sessionId = sessionIdOf()
+    const sourceSession = sourceSessionOf(ctx)
+    const sessionId = sourceSession.available ? sourceSession.sessionId : undefined
+    if (sourceSession.available) lastAvailableSessionId = sourceSession.sessionId
     syncChatSubscription(sessionId)
     for (const [block, mount] of mounts) {
       if (!block.isConnected) {
@@ -951,15 +1360,19 @@ export function installDomFenceRenderer(
       const raw = rawOf(block)
       const settled = isSettled(block)
       const domLanguage = tagTextBodyOf(block) !== null ? 'dsh-ui' : domLanguageOf(block)
-      const sourceLanguage = domLanguage === null ? sourceLanguages.get(block) : undefined
-      const language = domLanguage ?? sourceLanguage
+      // 宿主把围栏标签写成 `dsh-ui>` 这类带尾部标点的形态时，严格相等会让这条围栏
+      // 永远停在代码块上（真实会话：一条消息内 182 处）。快照侧已在解析时规范化，
+      // 这里再兜一层，覆盖 DOM 语言与历史缓存值两条路径。
+      const language = resolveFenceLanguage(block, () => sourceLanguages.get(block))
+      const sourceUnavailable = domLanguage === null
+        && (!sourceSession.available || sourceLanguages.isSessionUnavailable())
       const validGenui = language === 'dsh-ui'
         || (language === undefined && settled && isGenericGenuiFence(block, raw))
       if (mount.language === 'svg' && language !== 'svg') {
         unmountBlock(block)
         continue
       }
-      if (mount.language === 'dsh-ui' && !validGenui) {
+      if (mount.language === 'dsh-ui' && !validGenui && !sourceUnavailable) {
         unmountBlock(block)
         continue
       }
@@ -970,7 +1383,7 @@ export function installDomFenceRenderer(
       const contentWiped = !isPanelRoot(mount.lastNode) && mount.container.childElementCount === 0
       if (mount.lastRaw !== raw || mount.lastSettled !== settled || contentWiped) {
         const anchor = rowOf(block)
-        const { key, context } = contextOf(anchor, block, settled)
+        const { key, context } = contextOf(anchor, block, settled, true)
         const node = mount.language === 'svg' ? renderSvgFence(raw, key) : renderResolvedFenceNode(raw, key, context)
         if (node === null) {
           if (mount.skeleton && !settled) {
@@ -1002,7 +1415,7 @@ export function installDomFenceRenderer(
           try {
             const freshRoot = domRootFactory(fresh)
             const handler: GenuiActionHandler = (action, payload) => sendActionForBlock(block, action, payload)
-            freshRoot.render(<GenuiActionContext.Provider value={handler}>{node}</GenuiActionContext.Provider>)
+            freshRoot.render(wrapFenceNode(node, context, handler, !settled))
             mount.root = freshRoot
             mount.container = fresh
           } catch (error) {
@@ -1017,7 +1430,8 @@ export function installDomFenceRenderer(
           }
         } else {
           try {
-            mount.root.render(<GenuiActionContext.Provider value={(action, payload) => sendActionForBlock(block, action, payload)}>{node}</GenuiActionContext.Provider>)
+            const handler: GenuiActionHandler = (action, payload) => sendActionForBlock(block, action, payload)
+            mount.root.render(wrapFenceNode(node, context, handler, !settled))
           } catch (error) {
             // Never leave the stock block hidden behind a broken root: restore
             // the raw code block and drop the mount (issue #19).
@@ -1045,18 +1459,24 @@ export function installDomFenceRenderer(
       // label is no longer dsh-ui is somebody else's fence, so our explanation
       // would be about the wrong block.
       if (isSettled(block)) {
-        const domLanguage = tagTextBodyOf(block) !== null ? 'dsh-ui' : domLanguageOf(block)
-        const sourceLanguage = domLanguage === null ? sourceLanguages.get(block) : undefined
-        if ((domLanguage ?? sourceLanguage) !== 'dsh-ui') {
+        const language = resolveFenceLanguage(block, candidate => sourceLanguages.get(candidate))
+        if (language !== 'dsh-ui') {
           clearDiagnostic(block)
           continue
         }
       }
       rebuildWipedDiagnostic(block, diagnostic.raw)
     }
-    for (const block of findFenceCandidates()) {
-      renderBlock(block)
+    // Discovery and takeover share one budget: an unbounded pass here is what
+    // made a long session stall (every sweep re-read the whole transcript).
+    if (sourceChanged) {
+      sourceChanged = false
+      requeueAwaitingSource()
     }
+    const deadline = performance.now() + SWEEP_BUDGET_MS
+    resolveDirtyTargets(deadline)
+    drainCandidates(deadline)
+    keepDraining()
   }
 
   const schedule = (): void => {
@@ -1073,6 +1493,9 @@ export function installDomFenceRenderer(
     : undefined
 
   const observer = new MutationObserver(records => {
+    // A container the host emptied is repair work wherever it sits, and the
+    // removal is the only record that carries it: mark those first.
+    let relevant = false
     // Restore detached roots before paint, retaining input and pending actions.
     // The latest removal owns the current tree if several commits were batched.
     for (const record of [...records].reverse()) {
@@ -1080,6 +1503,7 @@ export function installDomFenceRenderer(
       const target = record.target
       const mount = [...mounts.values()].find(candidate => candidate.container === target)
       if (mount !== undefined) {
+        relevant = true
         if (!mount.block.isConnected || isPanelRoot(mount.lastNode)) continue
         mount.container.append(...record.removedNodes)
         continue
@@ -1087,7 +1511,38 @@ export function installDomFenceRenderer(
       // The same surgery for a visible diagnostic the host emptied: re-append
       // its own nodes instead of leaving the author without an explanation.
       const diagnostic = [...diagnostics.values()].find(candidate => candidate.container === target)
-      if (diagnostic !== undefined) diagnostic.container.append(...record.removedNodes)
+      if (diagnostic !== undefined) {
+        relevant = true
+        diagnostic.container.append(...record.removedNodes)
+      }
+    }
+    // Everything else can only change a fence where a fence can live: the
+    // composer and plugin-owned trees cannot hold a host fence. Sidebars can
+    // contain assistant replies, so they retain normal incremental discovery.
+    if (!relevant) {
+      for (const record of records) {
+        const node = record.target instanceof Element ? record.target : record.target.parentElement
+        if (node === null || node.closest(IGNORED_MUTATION_SCOPE) === null) {
+          relevant = true
+          break
+        }
+      }
+    }
+    if (!relevant) return
+    for (const record of records) {
+      // Structure, and the streaming→settled flip, can unlock a whole subtree
+      // (a history load, a session switch, a row that stopped streaming): those
+      // get the subtree pass. Text growth is the streaming case and stays on
+      // the cheap surface path.
+      if (record.type === 'characterData') {
+        markDirty(record.target, false)
+        continue
+      }
+      if (record.type === 'childList') {
+        for (const node of record.addedNodes) markDirty(node, true)
+        continue
+      }
+      markDirty(record.target, true)
     }
     // Pre-paint pass: surgery repair only (cheap DOM ops); the React
     // re-render goes through the rAF-scheduled sweep.
@@ -1103,7 +1558,23 @@ export function installDomFenceRenderer(
     // observer would only fire on structural changes and miss body growth.
     characterData: true,
   })
-  const interval = window.setInterval(sweep, SWEEP_MS)
+  let slowTicks = 0
+  const interval = window.setInterval(() => {
+    sweep()
+    // The rotation is the net for changes the observer cannot see, so it rides
+    // the slow tick only every ROTATION_TICKS of them: it re-queries the whole
+    // transcript, and on a streaming page the sweep already runs per frame.
+    slowTicks += 1
+    if (slowTicks % ROTATION_TICKS === 0) rotationSweep(performance.now() + SWEEP_BUDGET_MS)
+    keepDraining()
+  }, SWEEP_MS)
+  // Initial scan: the transcript is already on screen and no mutation will
+  // fire for it. Newest first, so what is in view mounts within the first
+  // frames while the scrollback drains from the queue. It is one synchronous
+  // pass by design — the budget below bounds discovery, not a single subtree
+  // query, and a session switch must not leave raw spec on screen.
+  const initial = findFenceCandidates()
+  for (let index = initial.length - 1; index >= 0; index -= 1) enqueueCandidate(initial[index])
   sweep()
 
   return () => {
@@ -1117,6 +1588,9 @@ export function installDomFenceRenderer(
       cancelAnimationFrame(rafId)
       rafId = null
     }
+    dirtyTargets.clear()
+    pendingCandidates.clear()
+    awaitingSource.clear()
     for (const block of Array.from(mounts.keys())) unmountBlock(block)
     for (const block of Array.from(diagnostics.keys())) clearDiagnostic(block)
   }

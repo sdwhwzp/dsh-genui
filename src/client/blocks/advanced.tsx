@@ -9,6 +9,7 @@ import { CodeBlock, DiffBlock, JsonTree, writeClipboard } from '../primitive-ada
 import { renderInline } from '../inline.ts'
 import css from '../GenuiBlock.module.css'
 import { GENUI_LIMITS } from '../genui-runtime/index.ts'
+import { renderMermaid } from '../mermaid-lazy.ts'
 import { PlotBlock } from '../PlotBlock.tsx'
 import { renderNode } from './render-node.tsx'
 import { codeBlockLabels, diffBlockLabels, jsonTreeLabels } from '../primitive-labels.ts'
@@ -285,24 +286,108 @@ type MermaidRenderState =
 export const MermaidNode = memo(function MermaidNode({ node }: { node: GenuiMermaid }) {
   const t = useT()
   const [state, setState] = useState<MermaidRenderState>({ status: 'loading' })
+  const ref = useRef<HTMLDivElement>(null)
   const code = node.code.slice(0, GENUI_LIMITS.maxMermaid)
   useEffect(() => {
     let alive = true
+    let visible = typeof IntersectionObserver === 'undefined'
+    let finished = false
+    let controller: AbortController | undefined
     setState({ status: 'loading' })
-    void (async () => {
-      try {
-        const m = await import('../mermaid-lazy.ts')
-        const svg = await m.renderMermaid(code)
-        if (alive) setState({ status: 'ready', html: svg })
-      } catch {
-        if (alive) setState({ status: 'error' })
+    const start = (): void => {
+      const target = ref.current
+      if (target === null || !alive || !visible || finished || controller !== undefined) return
+      const current = new AbortController()
+      controller = current
+      void (async () => {
+        try {
+          const svg = await renderMermaid(code, { signal: current.signal, target })
+          if (alive && !current.signal.aborted) {
+            finished = true
+            setState({ status: 'ready', html: svg })
+          }
+        } catch {
+          if (alive && !current.signal.aborted) {
+            finished = true
+            setState({ status: 'error' })
+          }
+        }
+      })()
+    }
+    // One viewport of lookahead also works inside clipped/nested scroll
+    // containers. Keep observing until completion so queued work can leave.
+    const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        visible = entry.isIntersecting
+        if (!visible && !finished) { controller?.abort(); controller = undefined }
+        if (visible) start()
       }
-    })()
-    return () => { alive = false }
+    }, { rootMargin: `${window.innerHeight}px 0px` })
+    if (ref.current !== null) observer?.observe(ref.current)
+    // Host themes may live on either root. No SVG cache: a theme change
+    // invalidates the mounted diagram and re-reads tokens at render time.
+    const themeKey = (): string => {
+      const style = getComputedStyle(ref.current ?? document.body)
+      const bodyStyle = getComputedStyle(document.body)
+      return [
+        '--dsw-alias-label-primary', '--dsw-alias-bg-layer-2',
+        '--dsw-alias-border-l2', '--dsw-alias-label-tertiary',
+      ].flatMap(token => [style.getPropertyValue(token), bodyStyle.getPropertyValue(token)])
+        .concat(style.fontFamily, style.color, style.colorScheme,
+          String(window.matchMedia?.('(prefers-color-scheme: dark)').matches))
+        .join('\n')
+    }
+    let previousTheme = themeKey()
+    const onTheme = (): void => {
+      const nextTheme = themeKey()
+      if (!alive || previousTheme === nextTheme) return
+      previousTheme = nextTheme
+      controller?.abort()
+      controller = undefined
+      finished = false
+      // Preserve ready geometry while recoloring, especially for offscreen
+      // history. A new source still clears the old SVG at effect setup.
+      setState(previous => previous.status === 'ready' ? previous : { status: 'loading' })
+      start()
+    }
+    const theme = new MutationObserver(onTheme)
+    for (let target: HTMLElement | null = ref.current; target !== null; target = target.parentElement) {
+      theme.observe(target, {
+        attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-ds-dark-theme'],
+      })
+    }
+    // Appearance plugins can replace a stylesheet without touching the card
+    // or body attributes. Recheck the palette only when those styles change;
+    // unrelated changes still stop at the themeKey equality gate.
+    theme.observe(document.head, {
+      childList: true, characterData: true, subtree: true,
+      attributes: true, attributeFilter: ['href', 'rel', 'media', 'disabled'],
+    })
+    document.head.addEventListener('load', onTheme, true)
+    const scheme = window.matchMedia?.('(prefers-color-scheme: dark)')
+    scheme?.addEventListener('change', onTheme)
+    start()
+    return () => {
+      alive = false
+      controller?.abort()
+      observer?.disconnect()
+      theme.disconnect()
+      document.head.removeEventListener('load', onTheme, true)
+      scheme?.removeEventListener('change', onTheme)
+    }
   }, [code])
-  if (state.status === 'error') return <div className={css.mermaidFallback}><pre>{code}</pre><div className={css.mermaidErr}>{t('block.mermaidError')}</div></div>
-  if (state.status === 'loading') return <div className={css.mermaidFallback}><pre>{code}</pre><div className={css.mermaidHint}>{t('block.mermaidLoading')}</div></div>
-  return <div className={css.mermaid} dangerouslySetInnerHTML={{ __html: state.html }} data-genui-mermaid />
+  return (
+    <div
+      ref={ref}
+      className={state.status === 'ready' ? css.mermaid : css.mermaidFallback}
+      data-genui-mermaid={state.status === 'ready' ? '' : undefined}
+      dangerouslySetInnerHTML={state.status === 'ready' ? { __html: state.html } : undefined}
+    >
+      {state.status === 'ready' ? null : state.status === 'error'
+        ? <><pre>{code}</pre><div className={css.mermaidErr}>{t('block.mermaidError')}</div></>
+        : <><pre>{code}</pre><div className={css.mermaidHint}>{t('block.mermaidLoading')}</div></>}
+    </div>
+  )
 })
 
 /** Scene3D: three.js WebGL canvas, lazily imported. */
@@ -489,8 +574,10 @@ export const QuizNode = memo(function QuizNode({ node, onAction }: {
               }}
             >
               {/* Before answering: a radio affordance so the row reads as a
-                  choice. After: ✓ on the right answer, ✗ on a wrong pick. */}
-              <span className={css.quizMarker}>
+                  choice. After: ✓ on the right answer, ✗ on a wrong pick.
+                  aria-hidden keeps the glyph out of the accessible name — the
+                  option button must announce as its label alone. */}
+              <span className={css.quizMarker} aria-hidden="true">
                 {answered ? (opt.correct === true ? '✓' : isChosen ? '✗' : '') : isChosen ? '●' : '○'}
               </span>
               {renderInline(opt.label, false)}

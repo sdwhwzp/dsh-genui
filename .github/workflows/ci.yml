@@ -10,20 +10,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # minimum、current、next 表示持续滚动的兼容职责；新宿主发布后替换对应标签。
+        # minimum 与 current 覆盖支持下限和当前 DSH 发布版。
         include:
           - node: 24
-            host-ref: "dsh-v0.1.2-rc.1"
+            host-ref: "dsh-v0.2.0-rc.1"
             role: minimum
           - node: 22
-            host-ref: "dsh-v0.1.7-rc.2"
+            host-ref: "dsh-v0.2.1-rc.2"
             role: current
           - node: 24
-            host-ref: "dsh-v0.1.7-rc.2"
+            host-ref: "dsh-v0.2.1-rc.2"
             role: current
-          - node: 24
-            host-ref: "dsh-v0.2.0-rc.2"
-            role: next
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -59,12 +56,7 @@ jobs:
         if: matrix.node == 22 && matrix.role == 'current'
         run: pnpm run check
 
-      - name: Build minimum host plugin
-        if: matrix.role == 'minimum'
-        run: pnpm run build
-
-      - name: Check published host API (typecheck + build)
-        if: matrix.role != 'minimum'
+      - name: Check published host API (typecheck + full unit suite + build)
         run: pnpm run check:host-api "${{ matrix.host-ref }}"
 
       - name: Verify and pack plugin tarball

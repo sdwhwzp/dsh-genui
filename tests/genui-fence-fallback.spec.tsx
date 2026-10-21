@@ -7,7 +7,7 @@
 // block below so no content is lost.
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { renderGenuiFence } from '../src/client/index.tsx'
+import { renderGenuiFence } from '../src/client/fence-render.tsx'
 import { describeFenceFailure } from '../src/client/fence-render.tsx'
 
 afterEach(cleanup)

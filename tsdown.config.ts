@@ -216,7 +216,7 @@ const standaloneConfig: UserConfig = {
  * main client bundle never contains either engine, so the eager download
  * drops from ~9 MB to the small renderer core.
  */
-function assetConfig(name: 'mermaid' | 'three' | 'echarts', entry: string): UserConfig {
+function assetConfig(name: 'mermaid' | 'three' | 'echarts' | 'echarts-core' | 'echarts-full' | 'icons', entry: string): UserConfig {
   return {
     name: `${ID}/assets/${name}`,
     entry: { [`assets/${name}`]: entry },
@@ -245,19 +245,15 @@ function assetConfig(name: 'mermaid' | 'three' | 'echarts', entry: string): User
 
 const libConfig: UserConfig = {
   name: ID,
-  // Named entries keep the published layout stable (lib/index.js +
-  // lib/invariant.js) while src/index.ts becomes the canonical bundle
-  // source entry that plugin_check's tool-bundle contract expects.
-  entry: { index: 'src/index.ts', invariant: 'src/plugin/invariant.ts' },
+  // Keep the root plugin bundle at lib/index.js, built from src/index.ts.
+  entry: { index: 'src/index.ts' },
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',
   target: 'es2024',
   fixedExtension: false,
   dts: false,
-  // Flatten entry outputs to lib/<basename>.js so package exports keep the
-  // stable paths lib/index.js + lib/invariant.js (a directory-mirroring
-  // default would emit lib/plugin/invariant.js).
+  // Keep the output name aligned with the package's root export.
   outputOptions: { entryFileNames: '[name].js' },
   // Cleanup happens in the build script (`rm -rf lib` before tsc): tsdown
   // must never wipe lib/types (tsc's declaration output) mid-pipeline.
@@ -272,4 +268,7 @@ export default [
   assetConfig('three', 'src/client/asset-three.ts'),
   assetConfig('echarts-core', 'src/client/asset-echarts-core.ts'),
   assetConfig('echarts-full', 'src/client/asset-echarts.ts'),
+  // Full 749-glyph icon catalogue (~1 MB of path data): fetched once, only
+  // when a spec names a glyph outside the 64 inlined in icon-data.ts.
+  assetConfig('icons', 'src/client/icons/asset-icons.ts'),
 ]

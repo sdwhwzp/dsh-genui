@@ -17,7 +17,7 @@ describe('GenUI diff labels', () => {
     expect(diffBlockLabels()).toMatchObject({ codeLabel: '代码', wrapLabel: '自动换行', unwrapLabel: '取消自动换行' })
   })
 
-  it('renders the rc.1 diff contract with localized copy labels', () => {
+  it('renders the current DiffBlock with localized labels', () => {
     const node: GenuiDiff = {
       type: 'diff',
       diffs: [{ path: 'a.txt', oldText: 'x', newText: 'y' }],
@@ -27,9 +27,8 @@ describe('GenUI diff labels', () => {
 
     const diff = document.querySelector('[data-diff]')
     expect(diff).not.toBeNull()
-    expect(diff?.textContent).toContain('复制')
-    expect(diff?.textContent).toContain('1 个文件')
-    expect(diff?.textContent).not.toContain('undefined')
+    expect(diff?.querySelector('button[aria-label="复制"]')).not.toBeNull()
+    expect(diff?.textContent).toContain('a.txt')
   })
 
   it('passes required copy labels to CodeBlock', () => {

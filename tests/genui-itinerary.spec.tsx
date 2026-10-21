@@ -88,7 +88,10 @@ describe('itinerary field compatibility', () => {
     document.body.append(row)
     let markdown = '```dsh-ui\n' + partial
     const ctx = {
-      sessions: { list: { getSnapshot: () => ({ current: 'itinerary-session' }) } },
+      sessions: {
+        list: { getSnapshot: () => ({ ids: ['itinerary-session'] }) },
+        retainInfo: () => ({ getSnapshot: () => ({ retainedBy: { mainView: 1 } }) }),
+      },
       get: (name: string) => name === 'uiConversation' ? {
         binding: () => ({ target: () => ({
           getSnapshot: () => ({ nodes: new Map([['assistant:1', {

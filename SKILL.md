@@ -13,31 +13,47 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 {"title":"<user-language text>","gap":14,"items":[...]}
 ```
 
+## 围栏书写铁律（先读这一节）
+
+围栏开头那一行的语言标记**统一写 `dsh-ui`**，不要添加标点、引号或注释。渲染器会容错大小写、首尾空格和部分尾部标点；其他语言标记不会作为 GenUI 接管，用户会看到普通代码块。
+
+| 写法 | 结果 |
+| --- | --- |
+| ` ```dsh-ui ` | ✅ 渲染 |
+| ` ```dsh-ui> ` | ✅ 容错渲染；生成时仍应去掉 `>` |
+| ` ```dsh-ui ` 带行尾空格 | ✅ 渲染（自动 trim） |
+| ` ``` DSH-UI ` | ✅ 渲染（忽略大小写） |
+| ` ```dshui ` / ` ```ds-ui ` | ❌ 不是合法标记 |
+
+此前同一模型曾在同一会话里写出 **182** 个 ` ```dsh-ui> ` 围栏并导致静默失效；现在已对这类尾部标点统一容错。写围栏时**只写 `dsh-ui` 这六个字符**，不要加任何标点、引号、注释；收尾必须是单独一行的 ` ``` `。
+
+围栏位置：只写在**回答正文**里。写进 reasoning / 思考块不会渲染，用户看不到。
+
 公式：`$...$` / `\(...\)` 为行内公式，`$$...$$` / `\[...\]` 为独立公式；支持矩阵、分段函数、多行对齐推导，以及加粗/高亮内的公式。正文、列表、键值、表头/单元格、卡片/步骤/时间线/标签页标题、题目与说明、按钮与表单标签、指标、媒体说明和图表外层标题共用此能力。JSON 字符串中的反斜杠必须双写，如 `"content": "\\(\\frac{a}{b}\\)"`。代码源码、输入值/占位符、原生下拉选项和图表引擎内部绘图文本仍遵循各自的原生格式，不解析富文本。数学语法以 KaTeX 为准，不执行 HTML、外部资源或脚本；不支持 LaTeX 文档编译、加载任意宏包。
 
 ## 组件词汇（只允许这些 type）
 
-布局：`text` `row` `col` `grid` `card` `divider` `spacer`
-展示：`stat` `badge` `progress` `list` `table` `keyvalue` `avatar` `image` `audio` `video` `timeline` `file-tree` `breadcrumb` `diff` `json` `code` `callout` `steps`
+布局：`text` `row` `col` `grid` `card` `divider` `spacer` `arrow` `hero`
+展示：`stat` `badge` `progress` `list` `table` `keyvalue` `avatar` `image` `audio` `video` `timeline` `file-tree` `breadcrumb` `diff` `json` `code` `callout` `steps` `icon` `blocks`
 图表：`chart`（bars/line/donut，可多序列）`plot`（数学函数图）`echart`（ECharts 全功能图表）
-交互：`button` `input` `select` `checkbox` `radio` `switch` `textarea` `tabs` `accordion` `copy`
+交互：`button` `input` `select` `checkbox` `radio` `switch` `slider` `textarea` `tabs` `accordion` `copy` `link` `submit`
 
 ### 布局
-- text: `{"type":"text","size":"h1|h2|h3|body|muted|caption","content":"...","center":true?}`
-- row / col: `{"type":"row"|"col","items":[...],"wrap":true?,"spacer":true?,"gap":n?}`
+- text: `{"type":"text","size":"display|h1|h2|h3|body|muted|caption","content":"...","align":"left|center|right"?}`（`tone:"danger|success|warning|info|muted"` 给整行文字上语义色，不用套 badge；`mono:true` 走等宽字体，用于十六进制/二进制/标识符，不带行内代码底色）（`size:"display"` 比标题大一档，作引言/开篇点题句，**一条回答 ≤1**；`center:true` 是旧写法，等价 `align:"center"`，新写一律用 `align`）
+- row / col: `{"type":"row"|"col","items":[...],"wrap":true?,"spacer":true?,"gap":n?}`；`row.justify:"center"` 主轴居中（图标+标题那种图头）；`col.width:n`（1-100）给这一列占行宽的百分比，不写就按内容宽
 - grid: `{"type":"grid","cols":n,"items":[...]}`
 - hero: `{"type":"hero","title":"<user-language title>","subtitle":"<user-language text>","value":"99.96%","label":"<user-language metric>","delta":"+0.02%","spark":[...],"tone":"accent|success|warning|danger"}` — **封面块**：eyebrow + 超大数字（52px，带入场计数）+ 标题 + 副标题 + tone 渐变底色。**一条回答最多用一个**，放在最前面当视觉锚点
 - span: 任意节点都可加 `"span":2`（grid 子节点占几列）——bento 排版的唯一原语：一张 `span:2` 宽卡配一张窄卡，比一列方块堆下去好看得多
-- card: `{"type":"card","title":"...","items":[...]}`；`"accent":"#f59e0b"` 指定强调色（边框 + 标题 + 极淡底色）
-- palette: `chart` / `echart` 都支持 `"palette":["#ff8800","#3ecf8e"]` 覆盖分类色板（默认跟随宿主主题）。**只有语义上需要指定颜色时才写**（成本=红、收益=绿），否则跟随主题更稳；`"tone":"info|success|warning|danger"` 给卡片底色（用于结论卡/风险卡）
-- divider: `{"type":"divider"}`; spacer: `{"type":"spacer"}`
+- card: `{"type":"card","title":"...","items":[...]}`；`"tone":"info|success|warning|danger"` 给卡片语义底色（用于结论卡/风险卡）；`"accent":"#f59e0b"` 指定强调色（边框 + 标题 + 极淡底色）；`"flat":true` 去掉阴影、换成极淡中性底——**图里的面板必须用 flat**，否则每层都像浮起的卡片，叠两层就脏了；`"eyebrow":"<user-language 小引题>"` 在标题上方加一行 meta 小字（把多张卡分章时用——**连续同章的卡片不要每张都加**，一段回答 ≤3 个）
+- palette: `chart` / `echart` 都支持 `"palette":["#ff8800","#3ecf8e"]` 覆盖分类色板（默认跟随宿主主题）。**只有语义上需要指定颜色时才写**（成本=红、收益=绿），否则跟随主题更稳
+- divider: `{"type":"divider"}`；**带章节名** `{"type":"divider","label":"<user-language 章节名>"}`（线 + 小标签居中，作章节切换：报告从摘要切入数据、图表册开新章时用一段；卡片/列表内部、连续同主题内容之间**不要用**，一条回答 ≤3 个）; spacer: `{"type":"spacer"}`
 
 ### 展示
 - stat: `{"type":"stat","label":"...","value":"...","delta":"+12.4%|-3%"}`（`-` 开头自动红、`+` 绿）；可选 `"spark":[3,5,4,8,6]` 画一条微趋势线（2–60 个有限数值）；`"size":"hero"` 渲染超大数字（一条回答最多用一次，作为视觉锚点）
 - badge: `{"type":"badge","label":"...","tone":"success|warn|danger|accent","icon":"emoji?"}`
 - progress: `{"type":"progress","label":"...","value":0-100,"valueLabel":"70%"}`；`"variant":"ring"` 画环形进度，`"target":70` 在轨道上标出目标刻度
 - avatar: `{"type":"avatar","name":"...","color":"#hex?"}`
-- image: `{"type":"image","src":"/mmx-files/result.png","alt":"<user-language description>"}` — 展示浏览器可访问的 http(s) 或同源相对图片地址；懒加载；不支持 `file:`/`data:` 等本地或主动协议
+- image: `{"type":"image","src":"/mmx-files/result.png","alt":"<user-language description>"}` — 展示浏览器可访问的 http(s) 或同源相对图片地址；懒加载；不支持 `file:`/`data:` 等本地或主动协议；`"caption":"<user-language 图注>"` 在图**下方**加说明行（来源/解读/署名；`alt` 是图**上方**的标签行，两者分工不同）
 - audio: `{"type":"audio","src":"/mmx-files/result.mp3","alt":"<user-language description>","loop":true?}` — 原生控制条；用户主动播放，不自动播放；仅 http(s) 或同源相对地址
 - video: `{"type":"video","src":"/mmx-files/result.mp4","alt":"<user-language description>","poster":"/mmx-files/poster.jpg"?,"loop":true?,"muted":true?,"aspectRatio":"16:9|4:3|1:1|9:16"?}` — 原生播放/音量/全屏控制；不自动播放
 - list: `{"type":"list","items":["..."] 或 [{"title":"...","desc":"..."}] 或嵌套节点(如 {"type":"badge","label":"TS"})}` — 行内可嵌节点（计入节点预算）；记录中的 `label`/`name` 归一化为 `title`，`description`/`content`/`text`/`body`/`detail` 归一化为 `desc`；只有正文时将正文用作标题，未知字段会收到警告
@@ -49,9 +65,20 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 - diff: `{"type":"diff","diffs":[{"path":"...","oldText":"..."|null,"newText":"..."}]}`
 - json: `{"type":"json","value":...}`（JSON 树查看器）
 - code: `{"type":"code","lang":"ts","code":"..."}`
-- callout: `{"type":"callout","tone":"info|success|warning|error","title":"...","content":"..."}`
+- callout: `{"type":"callout","tone":"info|success|warning|error","title":"...","content":"..."}` — 用于单条强调、提醒或风险摘要；`content` 是文本字符串，可用 JSON `"\n"` 分行。多条独立事项用 `list` 的 `{title,desc}` 保留逐项层次
 - steps: `{"type":"steps","current":n,"steps":[{"title":"...","desc":"..."}]}`
+- arrow: `{"type":"arrow","dir":"down|right","length":16-96,"label":"..."}` — 图里两个块之间的**细线连接件**（1.4px 线宽 + V 形箭头，固定长度）。上下流程图一律用它，**不要用文字「↓」**：字符箭头跟着文字基线走，撑不开间距
+- icon: `{"type":"icon","name":"Nodes","tone":"info|success|warning|danger|muted|default","size":16|20|24|32,"tile":true,"label":"<user-language 无障碍名>"}` — 内置图标集（749 个可忠实渲染；64 个内联秒开，其余首次使用时载入，完整名单见 ICON-NAMES.md）。`tile:true` 画成**淡色圆角方底**，用于阶段卡/语义标记；不带 `tile` 是跟随文字色的行内图标。`label` 可省略（纯装饰），成对出现时只给一个加 label
+- blocks: `{"type":"blocks","title":"...","rows":[{"label":"初始","cells":["0","1","2"],"color":"#64748b"}],"columns":n?,"caption":"..."}` — **色块图解**：按行分组的格子。三种形态同一个结构：① 阶梯图（每行格子数不同，各行自己等分宽度，如 8→4→2→1）② 等分块（一行 4 块）③ 泳道图（`columns` 固定列数，`cells` 里写 `"—"` 或留空）。`color` 省略时用强调色淡底；文字颜色按亮度自动反转（深底白字/浅底黑字）。**有「分成几份、逐轮推进、分组对照」的结构就用它，不要手写 svg 坐标。** `caption` 必写：一句话说明每格代表什么
+  - 行级 `"variant":"outline"`：细边框不填充，用于**矩阵**（每格都是一个框）；`"variant":"plain"`：连框都不画，用于**位串**（`1 0 1 0 0 0 0 0` 读起来是数字不是表格）——只有带 `tone`/`color` 的格子会画出底色
+  - 格子可以写成对象：`{"text":"1","tone":"danger","sub":"SF"}` —— `tone`（accent/success/warning/danger/muted）给**单个格子**上语义色，`sub` 在格子下方挂一行小字（位名、序号、角色）。`color` 可显式指定十六进制，优先于 tone
+  - 例：`{"columns":8,"rows":[{"variant":"outline","cells":[{"text":"1","tone":"danger","sub":"SF"},"0","1","1","0","0","1","0","0"]}],"caption":"最高位为 1，所以 SF=1。"}`
 
+内置图标名：以下 **64 个内联在包里、立即渲染**，优先从这里面选：
+
+Check CheckCircle Info InfoCircle Warning Error X Plus Minus Circle ArrowDown ArrowUp ArrowRight ArrowLeft ArrowCurvedRight Function Functions Operator Atom Nodes Connect Share Branch Grid GridAlt Stack Cube Storage Chart Trending Pulse Speed Timer Clock TableFilled Code SquareCode Terminal File FileCode Folder Link Paperclip Lightbulb Book BookOpen GraduationCap Flask Lab Brain Robot Sparkles ShieldCheck Lock Globe WebsiteNetwork Search MagnifyingGlassSearch PluginPuzzle Settings Bolt Compass
+
+其余 **685 个按需载入**（首次用到时拉取约 1 MB，此后本页全部可用）。完整名单在本 SKILL 同目录的 `ICON-NAMES.md`——需要猜名字时读它或 grep 它，不要在对话里穷举。
 ### 图表
 - chart: `{"type":"chart","kind":"bars|line|donut","data":[{"label":"...","value":n,"color":"#hex?"}],"series":[{"label":"...","data":[...]}]?,"horizontal":true?}` — bars 默认；line 趋势；donut 占比；**series：bars 是分组柱，line 是多序列折线**；**`horizontal:true` 画横向柱**（排行/长标签首选）；**`stacked:true` 把 series 堆叠**（构成/占比随时间）；堆叠段够高时数值直接印在段内，鼠标悬停任意柱/段/点/扇区都会弹出即时 tooltip（堆叠显示该段数值 + 合计）。v3 渲染：宽度自适应、Y 轴 1/2/5 刻度、单序列负值在零线以下真实绘制、line 带面积渐变与抽稀 X 标签、donut 图例显示数值与百分比。**≤8 个点的快速对比用 chart；多序列、需要缩放/交互或数据量大时用 echart**
 - plot: `{"type":"plot","series":[{"expr":"a*sin(b*x)","label":"...","color":"#hex?","params":[{"name":"a","value":1,"min":0,"max":5,"animateTo":3,"durationMs":4000,"loop":true},{"name":"b","value":1,"min":0.5,"max":5}]}],"xMin":-6.28,"xMax":6.28,"title":"..."}` — SVG 函数图；**series 可带 `"kind":"line|area|scatter"`**（缺省 line；area 填色到基线；scatter 散点）；**params 渲染成实时滑块**（拖动即时重绘，**y 轴锁定**=只变曲线不变数轴）；**animateTo 参数会显示播放按钮**（自动动画演示）；SVG 可拖拽平移、滚轮缩放；表达式支持 sin/cos/tan/asin/acos/atan/sqrt/cbrt/exp/log/ln/abs/floor/ceil/round/min/max/pow，常量 pi/e/tau，变量 x（其他字母=参数）
@@ -94,14 +121,15 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 
 **硬触发（出现就至少出一个围栏，不要退回纯文字段落）**：
 - ≥3 条并列要点 → `list`；≥2 组数字对比 → `table`；指标/进度/状态 → `stat`/`progress`/`badge`
-- 步骤/时间线 → `steps`/`timeline`/`mermaid`；架构/流程 → `diagram`/`mermaid`；风险/结论 → `callout`；代码/改动 → `code`/`diff`/`json`
+- 步骤/时间线 → `steps`/`timeline`/`mermaid`；架构/流程 → `diagram`/`mermaid`；单条风险/结论摘要 → `callout`；代码/改动 → `code`/`diff`/`json`
 - 趋势/占比 → `chart`（≤8 点）或 `echart`（多序列/要交互/数据量大）
 - 收尾自检：回答超过约 10 行时确认至少有一个围栏；同一份信息不要既写文字又重复出组件；纯问答不套 UI。
 
 | 你要呈现的内容 | 用这些组件 |
 |---|---|
-| 关键结论 / 要点罗列（≥2 条） | `list`、`keyvalue`、`callout` |
-| 重点强调 / 警告 / 注意事项 | `callout`（info/success/warning/error）、`badge`、`stat` |
+| 并列结论 / 要点罗列（≥2 条） | `list`、`keyvalue` |
+| 单条重点强调 / 警告 / 注意事项 | `callout`（info/success/warning/error）、`badge`、`stat` |
+| 多项风险 / 注意事项 | `list`；需要统一风险底色时用 `card.tone` + `list` |
 | 数据对比 / 趋势 / 占比 | `chart`（bars/line/donut）、`echart`（ECharts 全功能）、`table` |
 | 关键指标数字 / 进度状态 | `stat`、`progress`、`badge` |
 | 回答的视觉锚点（第一个组件） | `hero`（封面块，一条回答最多一个） |
@@ -120,6 +148,12 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 | 需要用户操作 / 筛选 / 反馈 | `button`、`input`、`select`、`checkbox`、`radio`、`switch`、`tabs` |
 | 3D 物体 / 空间布局 | `scene3d` |
 
+多项风险需要统一底色时，复用 `card` 包含 `list`；普通要点直接用 `list`。卡片的严重风险色是 `danger`，提示框对应的是 `error`。
+
+```json dsh-ui
+{"items":[{"type":"card","tone":"warning","title":"<user-language risk summary>","items":[{"type":"list","items":[{"title":"<user-language item title>","desc":"<user-language description>"},{"title":"<user-language item title>","desc":"<user-language description>"},{"title":"<user-language item title>","desc":"<user-language description>"}]}]}]}
+```
+
 **别用的情况**：一句话能说清的事、纯闲聊、用户明确说不要 UI、以及"为了炫技硬塞"——组件服务内容，不是内容服务组件。
 
 ## 行内富文本（文字类回答的底座）
@@ -131,10 +165,10 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 | `` `code` `` | 行内代码胶囊 |
 | `**加粗**` | 强调（不换行、不成块） |
 | `==高亮==` | 极淡底色标记 |
-| `[文字](https://…)` | 行内链接（http/https/mailto；非法目标退化为纯文字） |
+| `[文字](https://…)` | 行内链接（http/https/mailto；围栏会话中的本地文件链接支持右侧栏打开与行号定位；无效目标及独立 HTML artifact 中的本地文件链接显示为普通文字） |
 | JSON `"\n"`（真实换行符） | 换行——**多段文字写同一个字段**，不要为换行拆成多个节点 |
 
-不嵌套、不解析 HTML（每个标记生成 React 元素，不走 innerHTML；`<br>` 字面显示，换行用 `"\n"`）；标记没闭合时原样显示。数值列 / badge / spark 单元格不解析（数字没什么可强调的）。
+不嵌套、不解析 HTML（每个标记生成 React 元素，不走 innerHTML；`<br>` 字面显示，换行用 `"\n"`）；标记没闭合时原样显示。表格文本、`badge`、`delta` 单元格只识别本地文件链接，外部链接与无效目标显示为普通文字；`bar`、`spark`、`ring`、`index` 等专用数值单元格保持原有展示。
 
 文字字段只支持行内富文本。`text.content`、`callout.content`、`list` 项、`keyvalue` 值、`table` 单元格等字段中不要嵌入 Markdown 表格或连续三个及以上反引号、波浪号组成的代码围栏；表格使用 `table`，代码使用 `code`，代码改动使用 `diff`，结构化 JSON 使用 `json`。误写入文字字段的代码围栏连同内部标记保持原文，未闭合时从围栏标记开始保持原文。`validate_dsh_ui` 返回 `warning=block_markdown` 时，按照 `replacement` 改写结构节点并重新验证。
 
@@ -150,12 +184,13 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 2. **焦点唯一**：一条回答只有一个视觉焦点（最大那张图或那组数字）；其余组件的视觉权重必须明显更低，靠尺寸/位置/色彩强度拉开，**不是靠数组件个数**。
 3. **不重复**：同一批数据不做两种表达（表格与图表二选一）。
 
-### 卡片（`card`）只在两种场合用
+### 卡片（`card`）只在有明确用途时用
 
 - 需要**并排**的 `grid` 子项（没有边界就分不清内容归属）；
-- 承载**数据对象**：表格、图、keyvalue、指标组。
+- 承载**数据对象**：表格、图、keyvalue、指标组；
+- 同组风险需要**统一语义底色**：`card.tone` 包含 `list`，保留逐项标题与说明。
 
-单段文字、单个列表、已经自带边界的表格/图表，**不要包卡**。用 `h3` 标题 + 正文 + 间距代替。
+普通单段文字、普通列表、已经自带边界的表格/图表，**不要包卡**。用 `h3` 标题 + 正文 + 间距代替。
 
 ### 层级靠字，不靠框
 
@@ -233,6 +268,80 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 
 不要这样：一句话的结论配 stat + 表格 + callout。**没有内容就不发组件，这是对的，不算漏发。**
 
+## 编排范式：高频场景的默认起点
+
+范式是**验证过的起点，不是模板**：判断永远优先（上一节的「不要照抄」同样适用于范式）。六个范式各管一类高频场景——**数据问答**用「主表明细」、**分析收尾**用「结论卡」、**报告开篇**用「封面页」、**方案权衡**用「对比页」、**过程复盘**用「时间线叙事」、**教学自测**用「测验页」。从成套结构出发、按需增删；范式之外的场景自由组合。
+
+### 阶段图（讲清「分几步 / 怎么变」的默认结构）
+
+适用：一个过程有 2–4 个阶段，或一份数据被分成若干块、逐轮合并。
+
+```json dsh-ui
+{"items":[{"type":"text","size":"h2","content":"<user-language 过程名>"},{"type":"card","items":[{"type":"row","items":[{"type":"icon","name":"Function","tone":"info","tile":true},{"type":"col","gap":2,"items":[{"type":"text","size":"h3","content":"<user-language 阶段一：名称>"},{"type":"text","size":"muted","content":"<user-language 这一步做什么>"}]}]},{"type":"arrow","length":22},{"type":"row","items":[{"type":"icon","name":"Nodes","tone":"success","tile":true},{"type":"col","gap":2,"items":[{"type":"text","size":"h3","content":"<user-language 阶段二：名称>"},{"type":"text","size":"muted","content":"<user-language 这一步做什么>"}]}]}]},{"type":"blocks","rows":[{"cells":["<user-language 块 0>","<user-language 块 1>","<user-language 块 2>","<user-language 块 3>"],"color":"#3d7eb8"}],"caption":"<user-language 每块代表什么>"}]}
+```
+
+何时不用：只有一步就别画阶段图；纯数值对比用 `chart`，别把数字塞进色块。
+
+### 主表明细（数据问答的默认结构）
+
+适用：用户问的数据要「先看总量 → 再筛 → 再钻某一行」。
+
+```json dsh-ui
+{"items":[{"type":"grid","cols":2,"items":[{"type":"stat","label":"<user-language metric>","value":"<user-language value>","delta":"+3.1%"},{"type":"stat","label":"<user-language metric>","value":"<user-language value>"}]},{"type":"input","label":"<user-language filter>","placeholder":"<user-language hint>","id":"master-filter"},{"type":"table","filter":"master-filter","columns":["<user-language column>","<user-language column>","<user-language column>"],"types":["text","num","badge"],"rows":[["<user-language text>","128","<user-language status>"],["<user-language text>","190","<user-language status>"],["<user-language text>","250","<user-language status>"]],"details":[[{"type":"keyvalue","pairs":[{"key":"<user-language key>","value":"<user-language value>"}]}],null,[{"type":"progress","value":91,"target":80,"label":"<user-language metric>"}]]}]}
+```
+
+何时不用：行数 ≤5 不要配 `filter`；没有逐行明细可展开就别配 `details`；展开行里只放该行自己的信息，不要塞与该行无关的图表。
+
+### 结论卡（分析收尾的默认结构）
+
+适用：指标 + 一个明确判断 + 可执行的下一步（周报结论、复盘、健康度检查）。
+
+```json dsh-ui
+{"items":[{"type":"grid","cols":3,"items":[{"type":"stat","label":"<user-language metric>","value":"<user-language value>","delta":"+2.4%"},{"type":"stat","label":"<user-language metric>","value":"<user-language value>"},{"type":"stat","label":"<user-language metric>","value":"<user-language value>","delta":"-1.2%"}]},{"type":"card","tone":"success","title":"<user-language title>","items":[{"type":"text","size":"body","content":"<user-language text>"},{"type":"progress","value":72,"target":80,"label":"<user-language metric>","valueLabel":"72%"}]},{"type":"row","items":[{"type":"button","label":"<user-language action>","tone":"primary","action":"<action-name>"},{"type":"button","label":"<user-language action>","tone":"ghost","action":"<action-name>"}]}]}
+```
+
+何时不用：结论还不成立时不要硬造结论卡（先摆数据，让读者自己看）；没有真实可执行的下一步就不要放按钮；`tone` 只有在确实传递语义（好/坏/险）时才用。
+
+### 封面页（报告开篇的默认结构）
+
+适用：正式报告/复盘/评审材料的**第一屏**——一个大数字定调，一句引言点题，三张摘要卡预告正文。
+
+```json dsh-ui
+{"items":[{"type":"hero","label":"<user-language metric>","value":"99.96%","delta":"+0.02%","tone":"accent","title":"<user-language title>","subtitle":"<user-language text>"},{"type":"text","size":"display","content":"<user-language statement>"},{"type":"divider","label":"<user-language chapter>"},{"type":"grid","cols":3,"items":[{"type":"card","title":"<user-language title>","items":[{"type":"stat","label":"<user-language metric>","value":"<user-language value>"}]},{"type":"card","title":"<user-language title>","items":[{"type":"stat","label":"<user-language metric>","value":"<user-language value>"}]},{"type":"card","title":"<user-language title>","items":[{"type":"stat","label":"<user-language metric>","value":"<user-language value>"}]}]}]}
+```
+
+何时不用：短回答不需要封面（hero 已是唯一焦点，再加 `display` 就是两个焦点）；hero 与 `display` 同屏时，后面不要再出现 h1 级大标题；普通问答直接给答案，不要套封面。
+
+### 对比页（方案权衡的默认结构）
+
+适用：两个（至多三个）方案/版本/选型的正面对决——定性取舍进卡，定量差异进表。
+
+```json dsh-ui
+{"items":[{"type":"grid","cols":2,"items":[{"type":"card","tone":"success","title":"<user-language option>","items":[{"type":"list","items":["<user-language text>","<user-language text>"]}]},{"type":"card","tone":"warning","title":"<user-language option>","items":[{"type":"list","items":["<user-language text>","<user-language text>"]}]}]},{"type":"table","columns":["<user-language column>","<user-language column>","<user-language column>"],"types":["text","num","num"],"rows":[["<user-language text>","8","12"],["<user-language text>","5","9"]]}]}
+```
+
+何时不用：只有单一方案时就是普通陈述，不要硬摆两张卡假装权衡；卡与表要承载**不同粒度**（卡给取舍理由、表给数值对比），两边复制同一批数字就是重复表达。
+
+### 时间线叙事（过程复盘的默认结构）
+
+适用：有先后顺序的过程/事故/迭代叙事——时间线主叙事，收尾一张卡给汇总结论。
+
+```json dsh-ui
+{"items":[{"type":"timeline","items":[{"title":"<user-language milestone>","desc":"<user-language description>","time":"<user-language date>"},{"title":"<user-language milestone>","desc":"<user-language description>","time":"<user-language date>"},{"title":"<user-language milestone>","desc":"<user-language description>","time":"<user-language date>"}]},{"type":"card","title":"<user-language title>","items":[{"type":"keyvalue","pairs":[{"key":"<user-language key>","value":"<user-language value>"},{"key":"<user-language key>","value":"<user-language value>"}]}]}]}
+```
+
+何时不用：两步以内的小流程用正文一句话讲清；纯日志列举不要套卡，`timeline` 单独就够。
+
+### 测验页（教学自测的默认结构）
+
+适用：教学/检查理解——两题以上的成组测验，radio 组带答案与解析，`submit` 聚合交卷本地判卷。
+
+```json dsh-ui
+{"items":[{"type":"radio","label":"<user-language question>","group":"q1","options":["<user-language option>","<user-language option>","<user-language option>"],"answer":1,"explanation":"<user-language explanation>"},{"type":"radio","label":"<user-language question>","group":"q2","options":["<user-language option>","<user-language option>"],"answer":0,"explanation":"<user-language explanation>"},{"type":"submit","label":"<user-language action>","action":"grade","groups":["q1","q2"]}]}
+```
+
+何时不用：单一知识点用单个 `radio`（自带本地判卷）或 `quiz` 组件，不需要 submit 组卷；题目多于 5 个拆成多条回答分批发。
+
 ## 使用规则
 
 1. **围栏放哪，组件就出现在哪** —— 文字在前后自然流动，不要用工具、不要解释"这是一个围栏"。**围栏一闭合就立即渲染**（不等整条回答结束），所以可以边写文字边出组件
@@ -243,7 +352,7 @@ description: "Render structured interactive UI inline through the dsh-ui fence. 
 5. **深色主题友好**：配色选深底亮色；UI 主题跟随应用
 6. **场景判断**：先查上面的映射表 —— 内容类型命中就上对应组件；只有纯文字问答、一句话能说清时才不用
 7. **图表范围**：`plot` 给合理 xMin/xMax（如 -3.14 到 3.14）；3D 场景 mesh 少而精
-8. **规格要紧凑**：整棵组件树 ≤200 节点、≤8 层嵌套（超出部分会被渲染器裁掉），避免巨型 spec
+8. **规格要紧凑**：整棵组件树 ≤200 节点、≤8 层嵌套；单个 `tabs` ≤12 个标签页、`accordion` ≤24 项（超出部分会被渲染器按上限截断渲染）。避免巨型 spec
 9. **一个主题选一个主组件**：命中映射表后选**一种**组件承载，同一信息不要用两种组件重复表达（同一批数据又画 bars 又画 donut = 冗余）
 10. **数量纪律**：一条回答 3–8 个组件为宜，宁缺毋滥。反例：该用 `table` 对比时写三段 `text`；一个 `stat` 能说清的事套 `card`+`grid`；与内容无关的 `scene3d` 炫技——3D 只在内容本身就是几何/空间时才用
 11. **正常围栏直接发**：不要先调 validate_dsh_ui 预校验；含 `table` 或多个组件也直接输出围栏，让读者随生成看到内容。只有围栏已渲染失败，或确实需要手写 100 行以上的大 body 并检查括号时，才调用 `validate_dsh_ui`（参数 `spec` 传围栏内的 JSON 文本）。返回 `status=valid` 后发出围栏；返回 `status=invalid` 时按诊断修正，仍无法确认合法才重新验证。**若返回 `next=emit_repaired_fence`，直接使用 `repaired_json` 发出，无需再验证**。

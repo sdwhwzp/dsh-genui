@@ -218,9 +218,26 @@ try {
   }
 
   if (SMOKE) {
-    // Fresh keyless profiles follow the host's normal two-step onboarding.
+    // 空 profile 首次启动的引导：内测声明 → 凭据弹窗。DSH 0.2.0 系列凭据弹窗
+    // 提供「稍后配置」；DSH 0.2.1 系列只留关闭（Esc/×），且关闭只作用于当前
+    // 页面会话（刷新会重现）。遮罩可能在宿主重渲染时重新挂回，所以在后续每次
+    // 真实指针交互前幂等地再关一次。scratch 实例,不是产品行为断言（同 e2e-visual.mts）。
+    const dismissCredentialsOverlay = async () => {
+      const later = page.getByRole('button', { name: '稍后配置', exact: true })
+      if (await later.count() > 0) {
+        await later.first().click().catch(() => {})
+        return
+      }
+      const login = page.getByRole('button', { name: '登录', exact: true })
+      if (await login.isVisible().catch(() => false)) {
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(300)
+      }
+    }
+    // Fresh keyless profiles follow the host's normal onboarding.
     await page.getByRole('button', { name: '继续', exact: true }).click()
-    await page.getByRole('button', { name: '稍后配置', exact: true }).click()
+    await page.waitForTimeout(500)
+    await dismissCredentialsOverlay()
     // Reuse the visual smoke's DOM fence channel with a deterministic primitive fixture.
     // This exercises the installed tarball against the actual host, without a model call.
     await page.evaluate(() => {
@@ -253,6 +270,7 @@ try {
     if (await rendered.locator('[data-diff]').getByRole('button', { name: '复制' }).count() === 0) {
       throw new Error('DiffBlock 缺少复制文案')
     }
+    await dismissCredentialsOverlay()
     await rendered.locator('.md-code-block button').click()
     await page.waitForFunction(async () => await navigator.clipboard.readText() === 'primitive smoke')
     const table = rendered.locator('table').filter({ has: page.getByRole('button', { name: '数值校验' }) })
@@ -262,6 +280,7 @@ try {
     assert.deepEqual(await table.locator('tbody td').allTextContents(), ['103', '86', '25'])
     await page.waitForFunction(() => [...document.querySelectorAll('[data-primitives-smoke] [class*="reveal"]')]
       .every(element => getComputedStyle(element).animationName === 'none'))
+    await dismissCredentialsOverlay()
     await table.scrollIntoViewIfNeeded()
     const beforeHover = await table.boundingBox()
     await table.hover()

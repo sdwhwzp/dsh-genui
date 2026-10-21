@@ -35,7 +35,8 @@ describe('missing property comma repair', () => {
     const value = String(await createValidateDshUiTool().execute({ spec: fixture }))
     expect(value).toContain('status=invalid')
     expect(value).toContain('repair_count=1')
-    expect(value).toContain('next=emit_repaired_fence')
+    expect(value).toContain('next=fix_and_revalidate')
+    expect(value).toContain('warning=unknown_field path="spec.subtitle"')
     expect(value).toContain('"subtitle"')
   })
 

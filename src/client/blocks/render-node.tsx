@@ -4,11 +4,12 @@
  * the sibling block modules. Depth-guarded against pathological specs.
  * @module @changfenhuang/dsh-genui/client/blocks/render-node
  */
-import { type ComponentType, type ReactNode, useEffect, useState, type CSSProperties } from 'react'
-import * as primitives from '../primitive-adapter.ts'
+import { type ReactNode, useEffect, useState, type CSSProperties } from 'react'
 import css from '../GenuiBlock.module.css'
 import { GENUI_LIMITS } from '../genui-runtime/index.ts'
 import { renderInline } from '../inline.ts'
+import { classifyLinkTarget } from '../file-link.ts'
+import { FileLink } from '../file-link-context.tsx'
 import { t } from '../i18n/index.ts'
 import type { GenuiList, GenuiNode } from '../spec.ts'
 import type { AnswersState, GenuiBlockProps } from './state.ts'
@@ -25,27 +26,10 @@ import {
 import { DiagramNode } from './diagram/index.tsx'
 import { ImageNode } from './image.tsx'
 import { SvgNode } from './svg.tsx'
+import { IconNode } from './icon.tsx'
+import { BlocksNode } from './blocks.tsx'
 
 import { EChartNode } from '../EChartNode.tsx'
-
-/** Custom node data shape (declared locally: pristine hosts export no type). */
-interface GenuiCustomNode {
-  type: string
-  [key: string]: unknown
-}
-
-/** Props a registered custom renderer receives. */
-interface GenuiCustomProps {
-  node: GenuiCustomNode
-  onAction?: GenuiBlockProps['onAction']
-  renderChildren: (nodes: unknown[], keyBase: string) => unknown
-}
-
-/** Custom-component registry lookup, feature-detected (contract hosts only). */
-type HostGenuiExt = {
-  getGenuiComponent?: (type: string) => ComponentType<GenuiCustomProps> | undefined
-}
-const getGenuiComponent = (primitives as unknown as HostGenuiExt).getGenuiComponent
 
 function isListItemNode(item: GenuiList['items'][number]): item is GenuiNode {
   return typeof item === 'object' && item !== null && 'type' in item
@@ -203,15 +187,25 @@ export function renderNode(
   switch (node.type) {
     case 'text': {
       const size = node.size ?? 'body'
+      // `align` is canonical; legacy `center: true` maps to the center class.
+      const alignClass = node.align === undefined ? (node.center ? ` ${css.center}` : '') : ` ${css[node.align] ?? ''}`
       return (
-        <div key={key} className={`${css.text} ${css[size]}` + (node.center ? ` ${css.center}` : '')}>
+        <div
+          key={key}
+          className={`${css.text} ${css[size]}${alignClass}${node.mono === true ? ` ${css.textMono}` : ''}`}
+          data-tone={node.tone}
+        >
           {renderInline(node.content)}
         </div>
       )
     }
     case 'row': {
       return (
-        <div key={key} className={css.row + (node.wrap ? ` ${css.wrap}` : '')}>
+        <div
+          key={key}
+          className={css.row + (node.wrap ? ` ${css.wrap}` : '')
+            + (node.justify === undefined || node.justify === 'start' ? '' : ` ${css[`justify${node.justify[0]!.toUpperCase()}${node.justify.slice(1)}`] ?? ''}`)}
+        >
           {node.items.map((c, i) => renderNode(c, i, onAction, depth + 1, answers))}
           {node.spacer && <div className={css.spacer} />}
         </div>
@@ -219,7 +213,14 @@ export function renderNode(
     }
     case 'col': {
       return (
-        <div key={key} className={css.col} style={node.gap !== undefined ? { gap: `${node.gap}px` } : undefined}>
+        <div
+          key={key}
+          className={css.col}
+          style={{
+            ...(node.gap !== undefined ? { gap: `${node.gap}px` } : {}),
+            ...(node.width !== undefined ? { flex: `0 0 ${node.width}%`, width: `${node.width}%` } : {}),
+          }}
+        >
           {node.items.map((c, i) => renderNode(c, i, onAction, depth + 1, answers))}
         </div>
       )
@@ -253,7 +254,12 @@ export function renderNode(
         '--dsl-card-accent': node.accent,
       } as CSSProperties
       return (
-        <div key={key} className={`${css.card}${toneClass}`} style={accentStyle}>
+        <div
+          key={key}
+          className={`${css.card}${toneClass}${node.flat === true ? ` ${css.cardFlat}` : ''}`}
+          style={accentStyle}
+        >
+          {node.eyebrow !== undefined && <div className={css.cardEyebrow}>{renderInline(node.eyebrow)}</div>}
           {node.title !== undefined && <div className={css.cardTitle}>{renderInline(node.title)}</div>}
           {node.items.map((c, i) => renderNode(c, i, onAction, depth + 1, answers))}
         </div>
@@ -283,13 +289,14 @@ export function renderNode(
     case 'select': return <SelectNode key={key} node={node} onAction={onAction} answers={answers} />
     case 'checkbox': return <CheckboxNode key={key} node={node} onAction={onAction} answers={answers} />
     case 'link': {
-      // Honest affordance: with a whitelisted href this is a REAL anchor;
-      // without one it is plain styled text (a dead clickable-looking button
-      // was the same complaint class as the disabled-button fix).
-      const href = node.href
-      return href !== undefined
-        ? <a key={key} className={css.link} href={href} target="_blank" rel="noopener noreferrer">{renderInline(node.label, false)}</a>
-        : <span key={key} className={css.linkText}>{renderInline(node.label, false)}</span>
+      const target = classifyLinkTarget(node.href)
+      if (target.type === 'external') {
+        return <a key={key} className={css.link} href={target.href} target="_blank" rel="noopener noreferrer">{renderInline(node.label, false)}</a>
+      }
+      if (target.type === 'file') {
+        return <FileLink key={key} path={target.file.path} label={node.label} {...(target.file.line === undefined ? {} : { line: target.file.line })}>{renderInline(node.label, false)}</FileLink>
+      }
+      return <span key={key} className={css.linkText}>{renderInline(node.label, false)}</span>
     }
     case 'image': return <ImageNode key={`${key}:${node.src}`} node={node} />
     case 'audio': return <AudioNode key={`${key}:${node.src}`} node={node} />
@@ -402,7 +409,16 @@ export function renderNode(
         </div>
       )
     }
-    case 'divider': return <hr key={key} className={css.divider} />
+    case 'divider':
+      // Labeled variant: a chapter break — hairline + meta label + hairline.
+      if (node.label !== undefined && node.label !== '') {
+        return (
+          <div key={key} className={css.dividerLabeled}>
+            <span className={css.dividerLabelText}>{renderInline(node.label)}</span>
+          </div>
+        )
+      }
+      return <hr key={key} className={css.divider} />
     case 'list': {
       const bound = boundField(answers, node.filter)?.toLowerCase()
       const all = node.items.slice(0, GENUI_LIMITS.maxListItems)
@@ -445,6 +461,40 @@ export function renderNode(
       )
     }
     case 'spacer': return <div key={key} className={css.spacer} />
+    case 'icon': return <IconNode key={key} node={node} />
+    case 'blocks': return <BlocksNode key={key} node={node} />
+    case 'arrow': {
+      const down = (node.dir ?? 'down') === 'down'
+      const len = node.length ?? (down ? 26 : 32)
+      return (
+        <div
+          key={key}
+          className={css.arrow}
+          data-dir={down ? 'down' : 'right'}
+          data-genui-arrow
+        >
+          <svg
+            width={down ? 14 : len}
+            height={down ? len : 14}
+            viewBox={down ? `0 0 14 ${len}` : `0 0 ${len} 14`}
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              d={down
+                ? `M7 1 V ${len - 7} M2.5 ${len - 8} L7 ${len - 2} L11.5 ${len - 8}`
+                : `M1 7 H ${len - 7} M${len - 8} 2.5 L${len - 2} 7 L${len - 8} 11.5`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {node.label !== undefined && <span className={css.arrowLabel}>{renderInline(node.label)}</span>}
+        </div>
+      )
+    }
     case 'plot': return <PlotNode key={key} plot={node} />
     case 'callout': return <CalloutNode key={key} node={node} />
     case 'steps': return <StepsNode key={key} steps={node} />
@@ -469,25 +519,7 @@ export function renderNode(
     case 'diagram': return <DiagramNode key={key} node={node} />
 
     case 'echart': return <EChartNode key={key} node={node} />
-    default: {
-      // Plugin-registered custom types: a plugin ships a renderer through
-      // registerGenuiComponent; unregistered unknowns render nothing. The
-      // spec union is exhaustive, so an unknown node arrives as a plugin
-      // extension — treat it as a generic data node.
-      const custom = node as unknown as GenuiCustomNode
-      const Custom = getGenuiComponent?.(custom.type)
-      if (Custom !== undefined) {
-        return (
-          <Custom
-            key={key}
-            node={custom}
-            onAction={onAction}
-            renderChildren={(nodes, base) => nodes.map((c, i) => renderNode(c as GenuiNode, Number(base) + i, onAction, depth + 1, answers))}
-          />
-        )
-      }
-      return null
-    }
+    default: return null
   }
 }
 

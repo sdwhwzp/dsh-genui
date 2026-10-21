@@ -82,7 +82,8 @@ function repairColumnValues(value: unknown): string[] {
       const label = typeof column.label === 'string' ? column.label
         : typeof column.value === 'string' ? column.value
           : typeof column.title === 'string' ? column.title
-            : JSON.stringify(item)
+            : typeof column.name === 'string' && column.name !== '' ? column.name
+              : JSON.stringify(item)
       columns.push(label.slice(0, 128))
     }
   }
@@ -126,7 +127,7 @@ function deriveTableColumns(rows: Array<Array<string | number>>): PreparedTableR
 function columnKeyOf(value: unknown): string | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const column = value as Record<string, unknown>
-  for (const key of ['key', 'dataIndex', 'title', 'label'] as const) {
+  for (const key of ['key', 'dataIndex', 'title', 'label', 'name'] as const) {
     if (typeof column[key] === 'string' && column[key] !== '') return column[key]
   }
   return undefined
@@ -144,7 +145,7 @@ function cellText(value: unknown): string | number {
 function columnHeaderText(value: unknown): string {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return String(value)
   const column = value as Record<string, unknown>
-  for (const key of ['title', 'label', 'key', 'dataIndex'] as const) {
+  for (const key of ['title', 'label', 'key', 'dataIndex', 'name'] as const) {
     if (typeof column[key] === 'string' && column[key] !== '') return column[key]
   }
   return JSON.stringify(value)

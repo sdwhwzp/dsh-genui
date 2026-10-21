@@ -3,7 +3,7 @@
 // incomplete/partial bodies never merge, non-append replaces).
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { renderGenuiFence } from '../src/client/index.tsx'
+import { renderGenuiFence } from '../src/client/fence-render.tsx'
 import { applyPanelOperation, clearSessionPanel, getPanelSpec, mergePanelSpecs } from '../src/client/panel-store.ts'
 
 afterEach(() => {

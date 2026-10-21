@@ -24,7 +24,7 @@ import {
   BADGE_TONES, BUTTON_TONES, CALLOUT_TONES, CARD_TONES, CHART_KINDS, COMPONENT_SCHEMAS, HERO_TONES,
   DIAGRAM_EDGE_KINDS, DIAGRAM_KINDS, DIAGRAM_NODE_TYPES, DIAGRAM_ROUTES, DIAGRAM_VARIANTS,
   ECHART_PRESETS, FILE_TYPES, GENUI_NATIVE_TYPES, GENUI_SPEC_SCHEMA, INPUT_TYPES,
-  MEDIA_ASPECT_RATIOS, MESH_SHAPES, PLOT_KINDS, PROGRESS_VARIANTS, TABLE_CELL_TYPES, TEXT_SIZES,
+  ARROW_DIRS, BLOCKS_VARIANTS, BLOCK_CELL_TONES, ICON_TONES, MEDIA_ASPECT_RATIOS, MESH_SHAPES, PLOT_KINDS, PROGRESS_VARIANTS, ROW_JUSTIFY, TABLE_CELL_TYPES, TEXT_ALIGNS, TEXT_SIZES, TEXT_TONES,
 } from './genui-runtime/schema.ts'
 import type { ComponentFieldKind, ComponentRecordSchema, ComponentSchema } from './genui-runtime/schema.ts'
 import { normalizeGenuiSpec } from './genui-runtime/normalize.ts'
@@ -33,7 +33,8 @@ import type { GenuiDiagnostic } from './genui-runtime/diagnostics.ts'
 import { GENUI_LIMITS } from './genui-runtime/limits.ts'
 import { analyzeSubmissionRegistry } from './submission-registry.ts'
 import { isTableDetailReachable, prepareTableRows, tableRowsForDetails } from './table-details.ts'
-import { color, enu, int, num, obj, opt, safeHref, safeMediaSrc, str } from './genui-runtime/value-utils.ts'
+import { color, enu, int, num, obj, opt, safeMediaSrc, str } from './genui-runtime/value-utils.ts'
+import { classifyLinkTarget } from './file-link.ts'
 
 /** Result of `validateGenuiSpec`. */
 export interface GenuiValidation {
@@ -269,13 +270,94 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
     case 'text': {
       const content = str(v.content, GENUI_LIMITS.maxString) ?? str(v.text, GENUI_LIMITS.maxString)
       if (content === undefined) return null
-      return { type: 'text', content, ...opt('size', enu(v.size, TEXT_SIZES)), ...opt('center', v.center === true ? true : undefined) }
+      // `center: true` is the legacy shorthand; a display-level size is the
+      // one-per-answer focal tier (B1), so it rides the same enum gate.
+      return {
+        type: 'text', content,
+        ...opt('size', enu(v.size, TEXT_SIZES)),
+        ...opt('align', enu(v.align, TEXT_ALIGNS)),
+        ...opt('tone', enu(v.tone, TEXT_TONES)),
+        ...opt('mono', v.mono === true ? true : undefined),
+        ...opt('center', v.center === true ? true : undefined),
+      }
+    }
+    case 'icon': {
+      // `name` 是原型链攻击面（渲染器用 Object.hasOwn 兜住），但长度仍要截断；
+      // `size` 走 clamp。未知名字不在这里判死——渲染层降级成圆点。
+      const name = str(v.name, 64)
+      if (name === undefined) return null
+      return {
+        type: 'icon', name,
+        ...opt('label', str(v.label, GENUI_LIMITS.maxString)),
+        ...opt('tone', enu(v.tone, ICON_TONES)),
+        ...opt('size', int(v.size, 8, 96)),
+        ...opt('tile', v.tile === true ? true : undefined),
+      }
+    }
+    case 'blocks': {
+      // rows/cells 是数据不是节点，此前走 default 透传，于是颜色绕过了
+      // color()/SAFE_COLOR_RE、字符串绕过了 maxString。这里补齐：
+      // 颜色只接受字面色或宿主令牌，字符串按 maxString 截断，行/格按 limits 截断。
+      if (!Array.isArray(v.rows)) return null
+      const rows = v.rows.slice(0, GENUI_LIMITS.maxBlocksRows).flatMap((entry) => {
+        const row = obj(entry)
+        if (row === undefined || !Array.isArray(row.cells)) return []
+        const cells = row.cells.slice(0, GENUI_LIMITS.maxBlocksCells).map((cell) => {
+          if (cell === null) return null
+          if (typeof cell === 'string') return str(cell, GENUI_LIMITS.maxString) ?? ''
+          const holder = obj(cell)
+          if (holder === undefined) return null
+          const text = str(holder.text, GENUI_LIMITS.maxString)
+          if (text === undefined) return null
+          return {
+            text,
+            ...opt('color', color(holder.color)),
+            ...opt('tone', enu(holder.tone, BLOCK_CELL_TONES)),
+            ...opt('sub', str(holder.sub, 128)),
+          }
+        })
+        return [{
+          cells,
+          ...opt('label', str(row.label, 128)),
+          ...opt('color', color(row.color)),
+          ...opt('variant', enu(row.variant, BLOCKS_VARIANTS)),
+        }]
+      })
+      if (rows.length === 0) return null
+      return {
+        type: 'blocks', rows,
+        ...opt('columns', int(v.columns, 1, GENUI_LIMITS.maxBlocksCells)),
+        ...opt('title', str(v.title, GENUI_LIMITS.maxString)),
+        ...opt('caption', str(v.caption, GENUI_LIMITS.maxString)),
+      }
+    }
+    case 'arrow': {
+      return {
+        type: 'arrow',
+        ...opt('dir', enu(v.dir, ARROW_DIRS)),
+        ...opt('length', int(v.length, 16, 96)),
+        ...opt('label', str(v.label, 200)),
+      }
     }
     case 'row': {
-      return { type: 'row', items: repairItems(v.items, ctx, depth + 1), ...opt('wrap', v.wrap === true ? true : undefined), ...opt('spacer', v.spacer === true ? true : undefined) }
+      return {
+        type: 'row',
+        items: repairItems(v.items, ctx, depth + 1),
+        ...opt('wrap', v.wrap === true ? true : undefined),
+        ...opt('spacer', v.spacer === true ? true : undefined),
+        // Repair rebuilds every node from a hand-written field list, so a
+        // schema-only addition is silently dropped here. Keep the two in sync:
+        // figure headers need `justify: "center"` (icon + title over a caption).
+        ...opt('justify', enu(v.justify, ROW_JUSTIFY)),
+      }
     }
     case 'col': {
-      return { type: 'col', items: repairItems(v.items, ctx, depth + 1), ...opt('gap', num(v.gap, 0, 96)) }
+      return {
+        type: 'col',
+        items: repairItems(v.items, ctx, depth + 1),
+        ...opt('gap', num(v.gap, 0, 96)),
+        ...opt('width', num(v.width, 1, 100)),
+      }
     }
     case 'grid': {
       return { type: 'grid', cols: int(v.cols, 1, GENUI_LIMITS.maxGridCols) ?? 1, items: repairItems(v.items, ctx, depth + 1) }
@@ -284,9 +366,11 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
       return {
         type: 'card',
         items: repairItems(v.items, ctx, depth + 1),
+        ...opt('eyebrow', str(v.eyebrow, 64)),
         ...opt('title', str(v.title, GENUI_LIMITS.maxString)),
         ...opt('tone', enu(v.tone, CARD_TONES)),
         ...opt('accent', color(v.accent)),
+        ...opt('flat', v.flat === true ? true : undefined),
       }
     }
     case 'button': {
@@ -336,7 +420,9 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
     case 'link': {
       const label = str(v.label, GENUI_LIMITS.maxString)
       if (label === undefined) return null
-      return { type: 'link', label, ...opt('href', safeHref(v.href)) }
+      const target = classifyLinkTarget(v.href)
+      const href = target.type === 'external' ? target.href : target.type === 'file' ? String(v.href).trim() : undefined
+      return { type: 'link', label, ...opt('href', href) }
     }
     case 'image': {
       const src = safeMediaSrc(v.src)
@@ -344,6 +430,7 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
       return {
         type: 'image', src,
         ...opt('alt', str(v.alt, GENUI_LIMITS.maxString)),
+        ...opt('caption', str(v.caption, GENUI_LIMITS.maxString)),
       }
     }
     case 'audio': {
@@ -407,7 +494,7 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         ...opt('target', num(v.target, 0, 100)),
       }
     }
-    case 'divider': return { type: 'divider' }
+    case 'divider': return { type: 'divider', ...opt('label', str(v.label, 64)) }
     case 'spacer': return { type: 'spacer' }
     case 'avatar': {
       const name = str(v.name, 64)
@@ -1290,12 +1377,19 @@ export const GENUI_NODE_TYPES: ReadonlySet<string> = GENUI_NATIVE_TYPES
  * white-listed string, descending the same containers `countGenuiNodes`
  * walks. Callers can inspect field semantics or compare the count with the
  * repaired tree without maintaining another traversal.
+ *
+ * With `familyCaps` (default) the traversal applies the same per-family
+ * policy caps repair enforces (tabs ≤ maxTabs, accordion items ≤
+ * maxAccordionItems): nodes beyond a cap are policy-truncated, not defects,
+ * so the declared-vs-rendered ledger must not count them as vanished (#298).
  */
 function visitDeclaredGenuiNodes(
   value: unknown,
   cap: number,
   visit: (node: Record<string, unknown>, at: string) => void,
+  options: { familyCaps?: boolean } = {},
 ): number {
+  const familyCaps = options.familyCaps !== false
   let count = 0
   const declared = (candidate: unknown): boolean => {
     const o = obj(candidate)
@@ -1315,11 +1409,13 @@ function visitDeclaredGenuiNodes(
     count += 1
     visit(v, at)
     if (v.type === 'tabs' && Array.isArray(v.tabs)) {
-      for (let tab = 0; tab < v.tabs.length; tab++) {
+      const tabCount = familyCaps ? Math.min(v.tabs.length, GENUI_LIMITS.maxTabs) : v.tabs.length
+      for (let tab = 0; tab < tabCount; tab++) {
         walkItemsOf(v.tabs[tab], `${at}.tabs[${tab}]`)
       }
     } else if (v.type === 'accordion' && Array.isArray(v.items)) {
-      for (let row = 0; row < v.items.length; row++) {
+      const rowCount = familyCaps ? Math.min(v.items.length, GENUI_LIMITS.maxAccordionItems) : v.items.length
+      for (let row = 0; row < rowCount; row++) {
         walkItemsOf(v.items[row], `${at}.items[${row}]`)
       }
     } else if ((v.type === 'row' || v.type === 'col' || v.type === 'grid' || v.type === 'card') && Array.isArray(v.items)) {
@@ -1355,10 +1451,11 @@ function visitDeclaredGenuiNodes(
  * Count white-listed nodes declared by a raw spec before repair drops invalid entries.
  * @param value - raw GenUI spec.
  * @param cap - traversal ceiling.
+ * @param options - `familyCaps: false` counts beyond per-family policy caps too.
  * @returns declared node count up to the ceiling.
  */
-export function countDeclaredGenuiNodes(value: unknown, cap = Number.POSITIVE_INFINITY): number {
-  return visitDeclaredGenuiNodes(value, cap, () => {})
+export function countDeclaredGenuiNodes(value: unknown, cap = Number.POSITIVE_INFINITY, options: { familyCaps?: boolean } = {}): number {
+  return visitDeclaredGenuiNodes(value, cap, () => {}, options)
 }
 
 /** Count native nodes that survived repair, excluding opaque custom nodes. */
@@ -1485,7 +1582,14 @@ export function processGenuiSpec(value: unknown): GenuiProcessResult {
   const normalized = normalizeGenuiSpec(value)
   const repaired = repairCanonicalGenuiSpec(normalized.value)
   const validation = validateCanonicalGenuiSpec(normalized.value)
+  // Policy-aware ledger (#298): nodes beyond a per-family cap (tabs ≤
+  // maxTabs, accordion items ≤ maxAccordionItems) are truncated BY DESIGN, so
+  // they are not counted as "declared but vanished" — otherwise the fence
+  // below would always degrade to a code block and the truncation in repair
+  // could never take effect. The uncapped pass measures the truncation for
+  // the teaching warning instead.
   const declaredNativeCount = countDeclaredGenuiNodes(normalized.value, GENUI_LIMITS.maxNodes + 1)
+  const uncappedDeclaredCount = countDeclaredGenuiNodes(normalized.value, GENUI_LIMITS.maxNodes + 1, { familyCaps: false })
   const renderedNativeCount = repaired === null ? 0 : countRenderedNativeGenuiNodes(repaired)
   const renderedTotalCount = repaired === null ? 0 : countGenuiNodes(repaired)
   // The shared public validator preserves its historical diagnostic for an
@@ -1498,13 +1602,21 @@ export function processGenuiSpec(value: unknown): GenuiProcessResult {
   if (declaredNativeCount > renderedNativeCount) {
     errors.push(`repair dropped ${declaredNativeCount - renderedNativeCount} declared native node(s): declared ${declaredNativeCount}, rendered ${renderedNativeCount}`)
   }
+  const warnings: GenuiDiagnostic[] = [...normalized.warnings, ...diagnoseUnknownGenuiFields(normalized.value)]
+  if (uncappedDeclaredCount > declaredNativeCount) {
+    warnings.push({
+      kind: 'truncated',
+      path: 'spec',
+      message: `策略上限截断:${uncappedDeclaredCount - declaredNativeCount} 个声明节点超出 tabs ≤ ${GENUI_LIMITS.maxTabs} / accordion ≤ ${GENUI_LIMITS.maxAccordionItems} 的上限,未渲染;围栏照常渲染,重发时可拆分为多个组件`,
+    })
+  }
   return {
     value: normalized.value,
     normalized: normalized.value,
     repaired,
     spec: repaired,
     errors: [...new Set(errors)],
-    warnings: [...normalized.warnings, ...diagnoseUnknownGenuiFields(normalized.value)],
+    warnings,
     // Compatibility fields retain their historical meanings: declaredCount
     // is native declarations, while renderedCount is the total rendered tree.
     declaredCount: declaredNativeCount,
@@ -1894,6 +2006,12 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
     case 'diff':
       if (!Array.isArray(v.diffs)) errors.push(`${at}: type 'diff' requires diffs (array)`)
       break
+    case 'divider':
+    case 'spacer':
+      // No required fields; declared-field kinds are covered by the registry
+      // check below. Missing cases here made validate_dsh_ui reject ANY fence
+      // containing them as "unknown type" (found via the divider.label test).
+      break
     case 'json':
       if (!('value' in v)) errors.push(`${at}: type 'json' requires value`)
       break
@@ -1937,6 +2055,36 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
       if (typeof v.question !== 'string') errors.push(`${at}: type 'quiz' requires question (string)`)
       if (!Array.isArray(v.options)) errors.push(`${at}: type 'quiz' requires options (array)`)
       break
+    case 'blocks': {
+      // cells 是联合类型（string | null | record），无法挂到 schema 的 nested 上，
+      // 所以在这里显式校验对象那一半的形状与枚举。
+      if (!Array.isArray(v.rows)) { errors.push(`${at}: type 'blocks' requires rows (array)`); break }
+      isNum('columns')
+      v.rows.forEach((entry, i) => {
+        const row = obj(entry)
+        if (row === undefined) { errors.push(`${at}.rows[${i}] must be an object`); return }
+        if (!Array.isArray(row.cells)) { errors.push(`${at}.rows[${i}].cells must be an array`); return }
+        row.cells.forEach((cell, j) => {
+          if (cell === null || typeof cell === 'string') return
+          const holder = obj(cell)
+          if (holder === undefined) { errors.push(`${at}.rows[${i}].cells[${j}] must be a string, null, or object`); return }
+          if (typeof holder.text !== 'string') errors.push(`${at}.rows[${i}].cells[${j}].text must be a string`)
+          if (holder.tone !== undefined && !BLOCK_CELL_TONES.includes(holder.tone as never)) {
+            errors.push(`${at}.rows[${i}].cells[${j}].tone must be one of ${BLOCK_CELL_TONES.join(', ')}`)
+          }
+          if (holder.color !== undefined && color(holder.color) === undefined) {
+            errors.push(`${at}.rows[${i}].cells[${j}].color must be a literal colour or host token`)
+          }
+        })
+      })
+      break
+    }
+    case 'icon':
+      if (typeof v.name !== 'string') errors.push(`${at}: type 'icon' requires name (string)`)
+      isNum('size')
+      break
+    case 'arrow':
+      break
     case 'diagram':
       if (typeof v.kind !== 'string') errors.push(`${at}: type 'diagram' requires kind (string)`)
       if (!Array.isArray(v.nodes)) errors.push(`${at}: type 'diagram' requires nodes (array)`)
@@ -1954,9 +2102,16 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
       isNum('height')
       break
     default:
-      // Unknown type: plugin-registered custom nodes are valid when a
-      // renderer exists; the guard cannot know, so report as a warning.
-      errors.push(`${at}: unknown type '${type}' (custom renderer?)`)
+      // Registered native types (icon/blocks/arrow/…) reach here because this
+      // switch is a second, hand-written table. Falling through to "unknown
+      // type" made validateGenuiSpec() answer false for perfectly valid specs
+      // — the render pipeline only survived because processGenuiSpec filters
+      // that one error string. Consult the schema instead: anything registered
+      // is validated by validateRegistryFields below, and only genuinely
+      // unregistered types are reported as custom-renderer unknowns.
+      if (!Object.hasOwn(COMPONENT_SCHEMAS, type)) {
+        errors.push(`${at}: unknown type '${type}' (custom renderer?)`)
+      }
   }
   const definition = COMPONENT_SCHEMAS[type]
   if (definition !== undefined) {

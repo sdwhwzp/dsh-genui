@@ -19,8 +19,8 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
       PRERELEASE: ${{ github.event.release.prerelease }}
-      HOST_REF: dsh-v0.1.7-rc.2
-      NEXT_HOST_REF: dsh-v0.2.0-rc.2
+      HOST_REF: dsh-v0.2.1-rc.2
+      MINIMUM_HOST_REF: dsh-v0.2.0-rc.1
 
     steps:
       # actions/checkout@v4
@@ -115,8 +115,8 @@ jobs:
       - name: Check published host API
         run: pnpm run check:host-api "$HOST_REF"
 
-      - name: Check next published host API
-        run: pnpm run check:host-api "$NEXT_HOST_REF"
+      - name: Check minimum published host API
+        run: pnpm run check:host-api "$MINIMUM_HOST_REF"
 
       - name: Verify and pack plugin tarball
         id: pack
