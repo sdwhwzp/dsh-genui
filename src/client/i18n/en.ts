@@ -259,6 +259,9 @@ export const EN = {
   'ach.template-1.desc': 'Tried a template from the template center.',
 
   // ------------------------------------------------- primitive chrome
+  'label.copyViewText': 'View text',
+  'label.copyHideText': 'Hide text',
+  'label.copyPreviewTruncated': 'Preview truncated. Copy still includes the component’s full text.',
   'label.copy': 'Copy',
   /** CodeBlock's post-copy button label. */
   'label.copied': 'Copied',
@@ -335,5 +338,5 @@ export const EN = {
   'err.fieldValidation': 'GenUI field validation failed: {errors}',
   'err.chartValidation': 'chart field validation failed: {errors}',
   'err.fenceKeptAsCode': '⚠️ dsh-ui {diagnostic} — the fence stays a code block; fix it and resend.',
-  'err.fenceParse': '⚠️ dsh-ui fence JSON failed to parse{diagnostic} — the fence stays a code block; ask the model to fix the JSON and resend.',
+  'err.fenceParse': '⚠️ dsh-ui fence JSON failed to parse {diagnostic} — the fence stays a code block; ask the model to fix the JSON and resend.',
 } as const

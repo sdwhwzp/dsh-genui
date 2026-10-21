@@ -257,6 +257,9 @@ export const ZH: Record<keyof typeof EN, string> = {
   'ach.template-1.desc': '从模板中心试用了一个模板。',
 
   // ------------------------------------------------- primitive chrome
+  'label.copyViewText': '查看文本',
+  'label.copyHideText': '收起文本',
+  'label.copyPreviewTruncated': '预览已截断，复制仍包含组件的完整文本。',
   'label.copy': '复制',
   'label.copied': '复制成功',
   'label.copiedDone': '已复制',
@@ -330,5 +333,5 @@ export const ZH: Record<keyof typeof EN, string> = {
   'err.fieldValidation': 'GenUI 字段验证失败：{errors}',
   'err.chartValidation': 'chart 字段验证失败：{errors}',
   'err.fenceKeptAsCode': '⚠️ dsh-ui {diagnostic} —— 围栏保持为代码块；请修正后重发。',
-  'err.fenceParse': '⚠️ dsh-ui fence JSON 解析失败{diagnostic} —— 围栏保持为代码块；请让模型检查并修复 JSON 后重发。',
+  'err.fenceParse': '⚠️ dsh-ui fence JSON 解析失败 {diagnostic} —— 围栏保持为代码块；请让模型检查并修复 JSON 后重发。',
 }

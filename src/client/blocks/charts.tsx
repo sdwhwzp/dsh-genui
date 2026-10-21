@@ -229,8 +229,9 @@ export const TableNode = memo(function TableNode({ node, renderDetail, filterVal
   /** Live value of `node.sortField`: a column header to sort by. */
   sortValue?: string | undefined
   /** Renders a row's detail nodes. Supplied by render-node so the table never
-   *  has to import the renderer back (import cycle). */
-  renderDetail?: ((items: NonNullable<GenuiTable['details']>[number] & object[]) => ReactNode) | undefined
+   *  has to import the renderer back (import cycle). The details lookup index
+   *  identifies the occurrence even when rows are sorted or arrays are reused. */
+  renderDetail?: ((items: NonNullable<GenuiTable['details']>[number] & object[], detailIndex: number) => ReactNode) | undefined
 }) {
   useT()
   const columns = node.columns.slice(0, GENUI_LIMITS.maxTableCols)
@@ -270,14 +271,16 @@ export const TableNode = memo(function TableNode({ node, renderDetail, filterVal
   const visibleRows = filtered.map(entry => entry.row)
   const hiddenCount = rows.length - visibleRows.length
 
-  interface Section { header: { row: GenuiTable['rows'][number]; index: number } | null; children: Array<{ row: GenuiTable['rows'][number]; index: number }> }
+  interface Section { header: { row: GenuiTable['rows'][number]; index: number } | null; children: Array<{ row: GenuiTable['rows'][number]; index: number; visibleIndex: number }> }
   const sections: Section[] = []
-  visibleRows.forEach((row, index) => {
+  // Details and local state belong to the original row, not its filtered
+  // position. Keep the latter separately for the displayed index column.
+  filtered.forEach(({ row, index }, visibleIndex) => {
     if (isGroupRow(row)) { sections.push({ header: { row, index }, children: [] }); return }
     if (sections.length === 0 || sections[sections.length - 1]!.header === null) {
       if (sections.length === 0) sections.push({ header: null, children: [] })
     }
-    sections[sections.length - 1]!.children.push({ row, index })
+    sections[sections.length - 1]!.children.push({ row, index, visibleIndex })
   })
 
   // Sorting keeps sections intact: each section's children sort among
@@ -443,14 +446,14 @@ export const TableNode = memo(function TableNode({ node, renderDetail, filterVal
                                 </span>
                               </td>
                             )
-                            : renderCell(cell, j, child.index)
+                            : renderCell(cell, j, child.visibleIndex)
                         ))}
                       </tr>
                       {open && detail !== null && (
                         <tr className={css.detailRow}>
                           <td colSpan={columns.length}>
                             <div className={css.detailBody}>
-                              {renderDetail === undefined ? null : renderDetail(detail)}
+                              {renderDetail === undefined ? null : renderDetail(detail, child.index)}
                             </div>
                           </td>
                         </tr>

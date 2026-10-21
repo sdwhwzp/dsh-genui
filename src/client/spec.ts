@@ -667,6 +667,10 @@ export interface GenuiCopy {
   type: 'copy'
   label?: string
   text: string
+  /** Opt in to a separate toggle and plain-text preview; defaults to false. */
+  expandable?: boolean
+  /** Collapsed preview lines (0–30); ignored unless expandable is true. */
+  previewLines?: number
 }
 
 /* ---------------- v1.3: advanced ---------------- */

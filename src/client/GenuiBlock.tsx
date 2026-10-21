@@ -7,6 +7,7 @@
  * components live in src/client/blocks/*.
  */
 import { renderInline } from './inline.ts'
+import { CopyPreviewContext, useCopyPreviewState } from './copy-preview-state.ts'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGenuiAction } from './action-context.ts'
 import css from './GenuiBlock.module.css'
@@ -85,6 +86,7 @@ function specEquivalent(a: GenuiSpec, b: GenuiSpec): boolean {
  * when the reply settles; switching an existing durable key starts fresh. */
 function GenuiBlockInstance({ spec, stateKey, animateEntrance = true, initialState, onStateChange, onStateSnapshot }: GenuiBlockProps) {
   const gap = spec.gap ?? 16
+  const copyPreviews = useCopyPreviewState(spec)
   const onAction = useDebouncedAction(useGenuiAction())
   const stateChangeRef = useRef(onStateChange)
   stateChangeRef.current = onStateChange
@@ -186,31 +188,33 @@ function GenuiBlockInstance({ spec, stateKey, animateEntrance = true, initialSta
     recordFence(spec)
   }, [spec])
   return (
-    <div className={css.block} data-genui>
-      {spec.title !== undefined && <div className={css.banner}>{renderInline(spec.title)}</div>}
-      <div className={css.col} style={{ gap: `${gap}px` }}>
-        {spec.items.map((c, i) => (
-          // Staggered reveal: each root item fades/slides in after its
-          // predecessors, so the block assembles piece by piece instead of
-          // popping in as one slab. Delay capped so long specs still settle
-          // quickly; prefers-reduced-motion disables it (see CSS).
-          <div
-            key={i}
-            className={css.reveal}
-            style={{
-              animationDelay: `${Math.min(i * 90, 720)}ms`,
-              ...(!animateEntrance || persisted !== null ? { animation: 'none' } : {}),
-            }}
-            onAnimationEnd={event => {
-              // Reattaching this DOM node must not replay its completed entrance.
-              if (event.target === event.currentTarget) event.currentTarget.style.animation = 'none'
-            }}
-          >
-            {renderNode(c, i, trackedAction, 0, answersState)}
-          </div>
-        ))}
+    <CopyPreviewContext.Provider value={copyPreviews}>
+      <div className={css.block} data-genui>
+        {spec.title !== undefined && <div className={css.banner}>{renderInline(spec.title)}</div>}
+        <div className={css.col} style={{ gap: `${gap}px` }}>
+          {spec.items.map((c, i) => (
+            // Staggered reveal: each root item fades/slides in after its
+            // predecessors, so the block assembles piece by piece instead of
+            // popping in as one slab. Delay capped so long specs still settle
+            // quickly; prefers-reduced-motion disables it (see CSS).
+            <div
+              key={i}
+              className={css.reveal}
+              style={{
+                animationDelay: `${Math.min(i * 90, 720)}ms`,
+                ...(!animateEntrance || persisted !== null ? { animation: 'none' } : {}),
+              }}
+              onAnimationEnd={event => {
+                // Reattaching this DOM node must not replay its completed entrance.
+                if (event.target === event.currentTarget) event.currentTarget.style.animation = 'none'
+              }}
+            >
+              {renderNode(c, i, trackedAction, 0, answersState)}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </CopyPreviewContext.Provider>
   )
 }
 

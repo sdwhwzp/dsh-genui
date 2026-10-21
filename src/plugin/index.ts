@@ -92,7 +92,7 @@ const RENDER_UI_TOOL_GUIDANCE = '- Tool channel: render_ui 工具把同一 spec 
 export const GENUI_SECTION_TEXT = `Render UI inside your reply with a fenced \`dsh-ui\` JSON block:
 
 \`\`\`dsh-ui
-{"title":"<user-language text>","gap":14,"items":[...]}
+{"title":"示例","gap":14,"items":[{"type":"text","content":"把这里换成你的组件"}]}
 \`\`\`
 
 Allowed \`type\` values; the \`genui\` skill, when available, carries the full content→component mapping and per-component field details:
@@ -144,8 +144,19 @@ export const inject = ['systemPrompt']
 
 const BUNDLED_SKILL_RANK = 600
 const BUNDLED_SKILL_PROVIDER = 'dsh-genui'
-const BUNDLED_SKILL_DESCRIPTION = 'GenUI dsh-ui component/schema reference. Preserve conversation language for all user-visible text.'
 const BUNDLED_SKILL_INVOCATION = { modelInvocable: true, userInvocable: true } as const
+
+/**
+ * The frontmatter field the routing description comes from.
+ *
+ * A second copy of this sentence in code drifted from SKILL.md unnoticed, and the
+ * panel showed the code copy while the model read the same string — so an edit to
+ * the skill's own frontmatter changed nothing. The file is the only source.
+ */
+function frontmatterField(front: string, key: string): string | undefined {
+  const line = new RegExp('^\\s*' + key + '\\s*:\\s*(.+?)\\s*$', 'mu').exec(front)
+  return line?.[1]?.replace(/^['"]|['"]$/gu, '')
+}
 
 /** Register through the provider path so source=bundled also gets bundled precedence. */
 function bundledSkillProvider(): SkillProvider {
@@ -156,11 +167,13 @@ function bundledSkillProvider(): SkillProvider {
   const raw = readFileSync(path, 'utf8')
   const end = raw.indexOf('\n---\n', 4)
   if (!raw.startsWith('---\n') || end < 0) throw new Error('genui SKILL.md has invalid frontmatter')
+  const description = frontmatterField(raw.slice(4, end), 'description')
+  if (description === undefined) throw new Error('genui SKILL.md frontmatter has no description')
   return {
     name: BUNDLED_SKILL_PROVIDER,
     list: () => Promise.resolve([{
       name: 'genui',
-      description: BUNDLED_SKILL_DESCRIPTION,
+      description,
       invocation: BUNDLED_SKILL_INVOCATION,
       source: 'bundled',
       provider: BUNDLED_SKILL_PROVIDER,
@@ -171,7 +184,7 @@ function bundledSkillProvider(): SkillProvider {
     }]),
     get: () => Promise.resolve({
       name: 'genui',
-      description: BUNDLED_SKILL_DESCRIPTION,
+      description,
       invocation: BUNDLED_SKILL_INVOCATION,
       source: 'bundled',
       provider: BUNDLED_SKILL_PROVIDER,

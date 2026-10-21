@@ -1652,6 +1652,25 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 .copyChip:active { transform: translateY(1px); }
 .copyChipDone { border-color: var(--dsw-alias-state-success-primary, #3ecf8e); color: var(--dsw-alias-state-success-primary, #3ecf8e); }
 
+.copyExpandable { min-width: 0; max-width: 100%; }
+.copyControls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dsl-g-gap-xs); }
+.copyPreview {
+  box-sizing: border-box;
+  max-height: 240px;
+  overflow: auto;
+  margin: var(--dsl-g-gap-xs) 0 0;
+  padding: var(--dsl-g-gap-sm);
+  border: 1px solid var(--dsl-g-border);
+  border-radius: var(--dsl-g-radius-control);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsl-g-font-mono);
+  font-size: var(--dsl-g-font-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.copyPreviewHint { margin-top: var(--dsl-g-gap-xs); color: var(--dsw-alias-label-secondary); font-size: var(--dsl-g-font-meta); }
+
 /* ---------- mermaid ---------- */
 
 .mermaid { overflow-x: auto; padding: var(--dsl-g-gap-xs) 0; }

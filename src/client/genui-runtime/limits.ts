@@ -8,6 +8,9 @@ export const GENUI_LIMITS = {
   maxString: 2000,
   /** Maximum length of a `code` body. */
   maxCode: 12_000,
+  /** Copy preview only; clipboard text keeps the existing maxCode limit. */
+  maxCopyPreview: 2000,
+  maxCopyPreviewLines: 30,
   /** Maximum length of a mermaid source. */
   maxMermaid: 8000,
   /** Maximum `grid` columns. */

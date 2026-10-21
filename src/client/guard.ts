@@ -679,7 +679,11 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
     case 'copy': {
       const text = str(v.text, GENUI_LIMITS.maxCode)
       if (text === undefined) return null
-      return { type: 'copy', text, ...opt('label', str(v.label, 128)) }
+      return {
+        type: 'copy', text, ...opt('label', str(v.label, 128)),
+        ...opt('expandable', typeof v.expandable === 'boolean' ? v.expandable : undefined),
+        ...opt('previewLines', int(v.previewLines, 0, GENUI_LIMITS.maxCopyPreviewLines)),
+      }
     }
     case 'svg': {
       const code = str(v.code, GENUI_LIMITS.maxCode)

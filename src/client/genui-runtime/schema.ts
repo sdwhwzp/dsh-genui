@@ -324,7 +324,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   checkbox: schema(['label'], { ...nodeFields, label: 'string', checked: 'boolean', action: 'string', group: 'string' }),
   code: schema(['code'], { ...nodeFields, lang: 'string', code: 'string' }, { content: 'code', text: 'code' }),
   col: schema(['items'], { ...nodeFields, items: 'nodes', gap: 'number', width: 'number' }),
-  copy: schema(['text'], { ...nodeFields, label: 'string', text: 'string' }, { content: 'text', code: 'text', value: 'text' }),
+  copy: schema(['text'], { ...nodeFields, label: 'string', text: 'string', expandable: 'boolean', previewLines: 'number' }, { content: 'text', code: 'text', value: 'text' }),
   diagram: schema(['kind', 'nodes'], { ...nodeFields, kind: 'string', variant: 'string', title: 'string', nodes: 'array', edges: 'array', zones: 'array', theme: 'object' }, {}, {
     nested: { nodes: diagramNodeSchema, edges: diagramEdgeSchema, zones: diagramZoneSchema, theme: diagramThemeSchema },
     enums: { kind: DIAGRAM_KINDS, variant: DIAGRAM_VARIANTS },
