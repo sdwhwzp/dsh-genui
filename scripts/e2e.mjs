@@ -181,7 +181,11 @@ try {
 
   // ── 浏览器链路 ──────────────────────────────────────────────────────────
   const { chromium } = await import(pathToFileURL(join(DSH_ROOT, 'apps/web/node_modules/playwright/index.mjs')).href)
-  const browser = await chromium.launch({ channel: 'chrome', headless: true })
+  const browser = await chromium.launch({
+    ...(process.env.E2E_CHROMIUM ? { executablePath: process.env.E2E_CHROMIUM } : { channel: 'chrome' }),
+    headless: true,
+    args: ['--password-store=basic', '--use-mock-keychain'],
+  })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1200 }, locale: 'zh-CN', permissions: ['clipboard-read', 'clipboard-write'] })
   const pageErrors = []
   const pageMessages = []
@@ -238,6 +242,51 @@ try {
     await page.getByRole('button', { name: '继续', exact: true }).click()
     await page.waitForTimeout(500)
     await dismissCredentialsOverlay()
+    // Percentage columns divide the space remaining after the row gap. Exercise
+    // the installed renderer, including min-content pressure from a long code line.
+    for (const width of [500, 280]) {
+      for (const shares of [[50, 50], [40, 60]]) {
+        await page.evaluate(({ width, shares }) => {
+          const fixture = document.createElement('div')
+          fixture.setAttribute('data-column-width-smoke', '')
+          fixture.style.width = `${width}px`
+          const host = document.createElement('div')
+          host.className = 'md-code-block'
+          const label = document.createElement('div')
+          label.textContent = 'dsh-ui'
+          const pre = document.createElement('pre')
+          pre.textContent = JSON.stringify({ items: [{ type: 'row', items: shares.map(share => ({
+            type: 'col', width: share, items: [{ type: 'code', lang: 'text', code: 'long_column_identifier_'.repeat(20) }],
+          })) }] })
+          host.append(label, pre)
+          fixture.append(host)
+          document.body.prepend(fixture)
+        }, { width, shares })
+        const fixture = page.locator('[data-column-width-smoke]')
+        const block = fixture.locator('[data-genui]')
+        await block.locator('.md-code-block').first().waitFor({ state: 'visible' })
+        await page.waitForFunction(() => [...document.querySelectorAll('[data-column-width-smoke] [class*="reveal"]')]
+          .every(element => getComputedStyle(element).animationName === 'none'))
+        const geometry = await block.evaluate(element => {
+          const row = element.querySelector('[class*="reveal"] > div')
+          const columns = [...row.children]
+          return {
+            width: row.getBoundingClientRect().width,
+            scrollWidth: row.scrollWidth,
+            gap: parseFloat(getComputedStyle(row).columnGap),
+            columns: columns.map(column => column.getBoundingClientRect().width),
+          }
+        })
+        assert.equal(geometry.width, width)
+        assert.ok(geometry.scrollWidth <= width + 1, `百分比列不能溢出：${JSON.stringify({ width, shares, geometry })}`)
+        for (const [index, share] of shares.entries()) {
+          const expected = (width - geometry.gap) * share / 100
+          assert.ok(Math.abs(geometry.columns[index] - expected) < 1, `百分比列应按 ${shares.join('/')} 分配可用宽度：${JSON.stringify(geometry)}`)
+        }
+        await fixture.evaluate(element => element.remove())
+      }
+    }
+    log('百分比列 50/50、40/60 在 500px 和 280px 容器中比例正确且无横向溢出')
     // Reuse the visual smoke's DOM fence channel with a deterministic primitive fixture.
     // This exercises the installed tarball against the actual host, without a model call.
     await page.evaluate(() => {

@@ -1,7 +1,7 @@
 /** Exercise the emitted browser and Host entries against saved reply fields. Requires a build. */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as React from 'react'
 import * as jsx from 'react/jsx-runtime'
@@ -23,8 +23,44 @@ const itinerary = JSON.stringify({
   ],
 })
 
-type BrowserEntry = {
-  renderGenuiFence(raw: string, key: string, context?: { source: { id: string; order: number[] } }): React.ReactNode
+function clientContext() {
+  return {
+    get: () => undefined,
+    inject: () => () => {},
+    sessions: {
+      list: { getSnapshot: () => ({ ids: ['artifact-session'] }) },
+      retainInfo: () => ({ getSnapshot: () => ({ retainedBy: { mainView: 1 } }) }),
+    },
+    slots: { inject: (_name: string, callback: () => () => void) => callback(), register: () => () => {} },
+  }
+}
+
+type BrowserEntry = { apply(ctx: ReturnType<typeof clientContext>): () => void }
+const disposers: Array<() => void> = []
+
+/** Exercise the emitted entry through the stock Host DOM fence channel. */
+function mountFence(raw: string, key: string, streaming = false) {
+  const row = document.createElement('div')
+  row.dataset.chatAnchorKey = key
+  row.dataset.chatFlowKind = 'assistant-step'
+  const block = document.createElement('div')
+  block.className = 'md-code-block'
+  const banner = document.createElement('div')
+  const label = document.createElement('div')
+  label.textContent = 'dsh-ui'
+  banner.append(label)
+  const pre = document.createElement('pre')
+  const code = document.createElement('code')
+  pre.append(code)
+  block.append(banner, pre)
+  row.append(block)
+  function update(body: string, active: boolean) {
+    row.toggleAttribute('data-streaming', active)
+    code.textContent = body
+  }
+  update(raw, streaming)
+  document.body.append(row)
+  return { row, update, remove: () => row.remove() }
 }
 
 /** Run the published module-loader wrapper with the real selected primitives. */
@@ -57,40 +93,45 @@ function browserEntry(): BrowserEntry {
   return result
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  for (const dispose of disposers.splice(0).reverse()) dispose()
+  cleanup()
+  document.body.replaceChildren()
+})
 
 describe('published entries with Harness primitives', () => {
-  it('keeps saved itinerary aliases through completion and replay in the emitted browser code', () => {
-    const entry = browserEntry()
+  it('keeps saved itinerary aliases through completion and replay in the emitted browser code', async () => {
+    disposers.push(browserEntry().apply(clientContext()))
     const partial = itinerary.slice(0, itinerary.indexOf(',{"type":"keyvalue"')) + ','
-    const view = render(<div data-streaming="true">{entry.renderGenuiFence(partial, 'artifact')}</div>)
-    expect(screen.getByText('三天两夜')).toBeTruthy()
-    view.rerender(<div>{entry.renderGenuiFence(itinerary, 'artifact', { source: { id: 'saved-itinerary', order: [1, 0, 0] } })}</div>)
+    const fence = mountFence(partial, 'saved-itinerary', true)
+    await waitFor(() => expect(screen.getByText('三天两夜')).toBeTruthy())
+    fence.update(itinerary, false)
+    await waitFor(() => expect(screen.getByText('江边酒店')).toBeTruthy())
     expect(screen.getByText('参观博物馆')).toBeTruthy()
-    expect(screen.getByText('江边酒店')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     fireEvent.click(screen.getByRole('tab', { name: '第二天' }))
     expect(screen.getByText('湖边散步')).toBeTruthy()
-    view.unmount()
-    render(<div>{entry.renderGenuiFence(itinerary, 'replay', { source: { id: 'saved-itinerary', order: [1, 0, 0] } })}</div>)
-    expect(screen.getByText('住宿推荐')).toBeTruthy()
-    expect(document.querySelector('pre')).toBeNull()
+    fence.remove()
+    await waitFor(() => expect(document.querySelector('.genui-dom-fence')).toBeNull())
+    const replay = mountFence(itinerary, 'saved-itinerary')
+    await waitFor(() => expect(screen.getByText('住宿推荐')).toBeTruthy())
+    expect(replay.row.querySelector('.genui-dom-fence')?.querySelector('pre')).toBeNull()
   })
 
-  it('renders precise category totals and hover details through the emitted browser code', () => {
-    const entry = browserEntry()
+  it('renders precise category totals and hover details through the emitted browser code', async () => {
+    disposers.push(browserEntry().apply(clientContext()))
     const raw = JSON.stringify({ items: [{ type: 'chart', data: [], horizontal: true, stacked: true,
       series: [
         { label: 'A', data: [{ label: 'Q1', value: 0.1 }, { label: 'Q2', value: 1.234 }] },
         { label: 'B', data: [{ label: 'Q1', value: 0.2 }, { label: 'Q2', value: 2.2 }] },
       ],
     }] })
-    const view = render(<div>{entry.renderGenuiFence(raw, 'chart-totals')}</div>)
-    expect([...view.container.querySelectorAll('[class*="hbarValue"]')].map(node => node.textContent)).toEqual(['0.3', '3.434'])
-    expect(view.container.querySelector('[class*="hbarTrack"][title]')?.getAttribute('title')).toBe('Q1: 0.3')
-    fireEvent.mouseEnter(view.container.querySelector('[class*="hbarSeg"]')!)
-    expect(view.container.querySelector('[class*="chartTip"]')?.textContent).toContain('0.3')
-    expect(view.container.textContent).not.toContain('0.30000000000000004')
+    const fence = mountFence(raw, 'chart-totals')
+    await waitFor(() => expect([...fence.row.querySelectorAll('[class*="hbarValue"]')].map(node => node.textContent)).toEqual(['0.3', '3.434']))
+    expect(fence.row.querySelector('[class*="hbarTrack"][title]')?.getAttribute('title')).toBe('Q1: 0.3')
+    fireEvent.mouseEnter(fence.row.querySelector('[class*="hbarSeg"]')!)
+    expect(fence.row.querySelector('[class*="chartTip"]')?.textContent).toContain('0.3')
+    expect(fence.row.querySelector('.genui-dom-fence')?.textContent).not.toContain('0.30000000000000004')
   })
 
   it('validates the same saved itinerary through the emitted Host tools', async () => {

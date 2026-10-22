@@ -221,7 +221,7 @@ export function renderNode(
           className={css.col}
           style={{
             ...(node.gap !== undefined ? { gap: `${node.gap}px` } : {}),
-            ...(node.width !== undefined ? { flex: `0 0 ${node.width}%`, width: `${node.width}%` } : {}),
+            ...(node.width !== undefined ? { flex: `0 1 ${node.width}%`, width: `${node.width}%` } : {}),
           }}
         >
           {node.items.map((c, i) => renderNode(c, i, onAction, depth + 1, answers, `${path}.items[${i}]`))}
