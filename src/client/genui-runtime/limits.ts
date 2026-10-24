@@ -17,6 +17,9 @@ export const GENUI_LIMITS = {
   maxGridCols: 12,
   /** Maximum `tabs` count. */
   maxTabs: 12,
+  /** Bounded gallery/slide counts; carousel children also consume maxNodes. */
+  maxCarouselItems: 24,
+  maxImageGroupItems: 24,
   /** Maximum `accordion` items. */
   maxAccordionItems: 24,
   /** Maximum `list` items. */
@@ -31,6 +34,8 @@ export const GENUI_LIMITS = {
   /** Maximum `plot` series and per-series parameters. */
   maxPlotSeries: 8,
   maxPlotParams: 6,
+  /** Maximum computed fields evaluated for one GenUI specification. */
+  maxComputedFields: 50,
   /** Maximum `scene3d` meshes. */
   maxMeshes: 5,
   /** Maximum `quiz` options. */
