@@ -1,15 +1,16 @@
 /** Exercise the emitted browser and Host entries against saved reply fields. Requires a build. */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SidechatSurface } from '@changfenhuang/dsh-genui/client'
 import * as React from 'react'
 import * as jsx from 'react/jsx-runtime'
 import * as reactDom from 'react-dom/client'
 import * as cordis from '@deepseek-ai/cordis'
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import * as host from '../../lib/index.js'
+import * as host from '@changfenhuang/dsh-genui'
 
 const itinerary = JSON.stringify({
   title: '三日行程',
@@ -23,10 +24,23 @@ const itinerary = JSON.stringify({
   ],
 })
 
-function clientContext() {
+function clientContext(providers: Record<string, unknown> = {}) {
   return {
     get: () => undefined,
-    inject: () => () => {},
+    inject: (names: readonly string[], callback: (scope: {
+      get: (name: string) => unknown
+      effect: (setup: () => (() => void)) => (() => void)
+    }) => void) => {
+      if (names.every(name => providers[name] !== undefined)) callback({
+        get: name => providers[name],
+        effect: setup => {
+          const dispose = setup()
+          disposers.push(dispose)
+          return dispose
+        },
+      })
+      return () => {}
+    },
     sessions: {
       list: { getSnapshot: () => ({ ids: ['artifact-session'] }) },
       retainInfo: () => ({ getSnapshot: () => ({ retainedBy: { mainView: 1 } }) }),
@@ -100,6 +114,48 @@ afterEach(() => {
 })
 
 describe('published entries with Harness primitives', () => {
+  it('shares provider aliases and routes emitted sidechat controls to their owning child', async () => {
+    let adapter: { mount: (surface: SidechatSurface) => (() => void) } | undefined
+    const providerDispose = vi.fn()
+    const provider = { registerSidechatSurfaceAdapter: vi.fn((value: typeof adapter) => {
+      adapter = value
+      return providerDispose
+    }) }
+    disposers.push(browserEntry().apply(clientContext({ genuiSidechat: provider, betterSidebar: provider })))
+    expect(provider.registerSidechatSurfaceAdapter).toHaveBeenCalledTimes(1)
+    if (adapter === undefined) throw new Error('Emitted client did not register a sidechat adapter')
+    const raw = JSON.stringify({ items: [
+      { type: 'input', id: 'choice', label: 'Child choice' },
+      { type: 'submit', label: 'Continue child', action: 'continue' },
+    ] })
+    const root = document.createElement('div')
+    root.setAttribute('data-genui-surface', 'artifact-provider/sidechat')
+    const block = document.createElement('div')
+    block.className = 'md-code-block'
+    const pre = document.createElement('pre')
+    pre.textContent = `${raw}\n`
+    block.append(document.createElement('div'), pre)
+    root.append(block)
+    document.body.append(root)
+    const sendPrompt = vi.fn(async (_text: string) => {})
+    const mountedAdapter = adapter
+    await act(async () => { disposers.push(mountedAdapter.mount({
+      root, source: 'artifact-provider/sidechat', threadId: 'artifact-child', eventSeq: 8,
+      contentBlockIndex: 2, text: `\`\`\`dsh-ui\n${raw}\n\`\`\``, sendPrompt,
+    })) })
+    fireEvent.change(within(root).getByRole('textbox'), { target: { value: 'child-only' } })
+    const button = within(root).getByRole('button', { name: 'Continue child' })
+    fireEvent.click(button)
+    expect(sendPrompt).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('"choice":"child-only"'))
+    expect(sendPrompt.mock.calls[0]![0]).toMatch(/^\[genui-action\] continue /)
+    const unmount = disposers.pop()!
+    await act(async () => { unmount(); fireEvent.click(button) })
+    expect(sendPrompt).toHaveBeenCalledTimes(1)
+    expect(root.querySelector('[data-genui]')).toBeNull()
+    expect(block.style.display).toBe('')
+    expect(providerDispose).not.toHaveBeenCalled()
+  })
+
   it('keeps saved itinerary aliases through completion and replay in the emitted browser code', async () => {
     disposers.push(browserEntry().apply(clientContext()))
     const partial = itinerary.slice(0, itinerary.indexOf(',{"type":"keyvalue"')) + ','

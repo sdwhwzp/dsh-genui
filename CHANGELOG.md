@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.14.0-dsh.20261025.2] - 2026-10-25
+
+- Accept provider-declared sidechat surfaces through the optional `genuiSidechat` service while retaining BetterSidebar integration. Provider aliases share one registration; reused roots keep child-thread action routes and interaction state isolated.
+
 ## [0.14.0-dsh.20261025.1] - 2026-10-25
 
 - Inline and panel action relay messages follow the active interface language while retaining their action marker and component data.
