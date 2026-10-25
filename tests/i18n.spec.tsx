@@ -105,6 +105,38 @@ describe('locale resolution', () => {
   })
 })
 
+describe('action prompt', () => {
+  // The relay prompt becomes a visible user message, so it must follow the
+  // interface language instead of always shipping Chinese.
+  it('is written in the active locale and keeps the wire marker', () => {
+    setLocale('en')
+    const english = t('action.inline', { action: 'ping', payload: '' })
+    expect(english).toMatch(/^\[genui-action\] ping\. /)
+    expect(english).not.toMatch(/[\u4e00-\u9fff]/)
+    expect(t('action.payload', { json: '{"a":1}' })).not.toMatch(/[\u4e00-\u9fff]/)
+
+    setLocale('zh')
+    expect(t('action.inline', { action: 'ping', payload: '' }))
+      .toMatch(/^\[genui-action\] ping。/)
+  })
+})
+
+describe('action prompt data', () => {
+  it.each(['en', 'zh'] as const)('keeps inline and panel action data in %s', locale => {
+    setLocale(locale)
+    const payload = t('action.payload', { json: '{"text":"{action}","count":2}' })
+    for (const surface of ['inline', 'panel'] as const) {
+      const prompt = t(`action.${surface}`, { action: 'refresh', payload })
+      expect(prompt).toContain('[genui-action] refresh')
+      expect(prompt).toContain('{"text":"{action}","count":2}')
+      expect(prompt).not.toContain('{payload}')
+      if (surface === 'panel') expect(prompt).toContain('panel:true')
+      if (locale === 'en') expect(prompt).not.toMatch(/[\u4e00-\u9fff]/)
+      else expect(prompt).toContain('用户刚刚')
+    }
+  })
+})
+
 describe('t() lookup chain', () => {
   it('returns the active language', () => {
     setLocale('en')

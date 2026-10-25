@@ -165,7 +165,7 @@ dsh-genui Capabilities
 - **Durable Persistence**: User inputs, form fields, and quiz states persist across page reloads via session fingerprints (LRU cache of 200 blocks).
 
 ### 4. 🔄 Bidirectional Action Event Loop
-- **Closed-Loop Interactions**: Interactive elements equipped with an `action` payload package user events back to the model to trigger follow-up reasoning.
+- **Closed-Loop Interactions**: Interactive elements equipped with an `action` payload package user events back to the model to trigger follow-up reasoning. Inline and panel action messages follow the active interface language and preserve the component data.
 - **Honest UI Guarantee**: Buttons without an `action` render disabled to eliminate "dead clicks"; active buttons show immediate visual feedback upon trigger.
 - **Debounced Delivery**: Discrete taps send immediately; continuous slider drags apply trailing-edge debounce to prevent message flooding.
 

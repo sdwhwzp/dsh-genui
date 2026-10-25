@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.14.0-dsh.20261025.1] - 2026-10-25
+
+- Inline and panel action relay messages follow the active interface language while retaining their action marker and component data.
+
 ## [0.14.0] - 2026-10-21
 ## [0.11.2-preview.1-dsh.20260926.1] - 2026-09-26
 
