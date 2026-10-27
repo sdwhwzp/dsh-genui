@@ -174,6 +174,10 @@ function FencePanelPublisher({ sessionId, sourceId, order, spec, raw }: {
  * - Tier-2 completion (missing quotes/brackets): settled renders only —
  *   `context.source` exists exclusively once the message finished, so
  *   streaming halves are never completed early.
+ * - Tier-2 also runs a SHAPE pass before appending closers: it rewrites a
+ *   bracket-balanced but grammatically wrong body (a wrapped member key, a
+ *   "Tetris" table) — the same settled-only gate, since a half-typed body
+ *   must never be reshaped.
  * - Native chart semantics are checked before repair on every candidate so
  *   aliases, empty collections, or line/donut series cannot repair into a
  *   default/blank chart.

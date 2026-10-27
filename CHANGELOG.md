@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.15.0-dsh.20261027.2] - 2026-10-27
+
+- Repair wrapped member keys and avoid offscreen Mermaid theme work; retain account-aware action relay and direct fence output.
+
+## [Unreleased]
+
+### 修复
+
+- **成员键被写成单元素数组时围栏不再整段降级**：`{"a":1,["b"]:[2]}` 这类正文括号全配平、引号也合法，tier-1（引号 / 尾逗号）与 tier-2 的补闭合符都看不出问题，整段只能退化成代码块；现在 tier-2 的形状阶段把 `["b"]` 原位还原成 `"b"`（整串 parse 通过才采纳），并与既有的 Tetris 表格改写合并为 `rewriteFenceShapes`，一次处理正文里的多种形变缺陷。`["b"]` 后没有冒号（还有第二处结构缺陷）时不猜。注意：同时存在多处结构缺陷的正文仍然降级为代码块，需要重发。
+
 ## [0.15.0-dsh.20261027.1] - 2026-10-27
 
 - Integrate upstream font scaling, computed-state corrections, truncation diagnostics and CJK fence repair; retain localized action relay, precise chart totals and direct fence output.
