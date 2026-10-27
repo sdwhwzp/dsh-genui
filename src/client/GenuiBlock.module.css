@@ -52,18 +52,19 @@ body[data-ds-dark-theme] .panel {
      (34/28/24/19/16) against a 14.5px body, and the reading floor stays 12px.
      v11 names the three big figures by their OWNER: stat values, the single
      hero stat, and the hero cover's mega figure are three different jobs on
-     one scale (before v11: "--dsl-g-font-hero", a bare 44px and a bare 52px). */
-  --dsl-g-font-stat: 34px;
-  --dsl-g-font-stat-hero: 44px;
-  --dsl-g-font-mega: 52px;
-  --dsl-g-font-display: 28px;
-  --dsl-g-font-h1: 24px;
-  --dsl-g-font-h2: 19px;
-  --dsl-g-font-h3: 16px;
-  --dsl-g-font-body: 14.5px;
-  --dsl-g-font-title: 13.5px;
-  --dsl-g-font-meta: 12.5px;
-  --dsl-g-font-data: 12px;
+     one scale (before v11: "--dsl-g-font-hero", a bare 44px and a bare 52px).
+     宿主内容字号超过 17px 后按比例放大；原字号作为下限，保留默认设置下的层级。 */
+  --dsl-g-font-stat: max(34px, calc(var(--dsh-content-font-size, 14px) * 2));
+  --dsl-g-font-stat-hero: max(44px, calc(var(--dsh-content-font-size, 14px) * 2.588235294));
+  --dsl-g-font-mega: max(52px, calc(var(--dsh-content-font-size, 14px) * 3.058823529));
+  --dsl-g-font-display: max(28px, calc(var(--dsh-content-font-size, 14px) * 1.647058824));
+  --dsl-g-font-h1: max(24px, calc(var(--dsh-content-font-size, 14px) * 1.411764706));
+  --dsl-g-font-h2: max(19px, calc(var(--dsh-content-font-size, 14px) * 1.117647059));
+  --dsl-g-font-h3: max(16px, calc(var(--dsh-content-font-size, 14px) * 0.941176471));
+  --dsl-g-font-body: max(14.5px, calc(var(--dsh-content-font-size, 14px) * 0.852941176));
+  --dsl-g-font-title: max(13.5px, calc(var(--dsh-content-font-size, 14px) * 0.794117647));
+  --dsl-g-font-meta: max(12.5px, calc(var(--dsh-content-font-size, 14px) * 0.735294118));
+  --dsl-g-font-data: max(12px, calc(var(--dsh-content-font-size, 14px) * 0.705882353));
 
   --dsl-g-gap-lg: 16px;
   --dsl-g-gap-xl: 24px;

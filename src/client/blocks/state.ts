@@ -38,9 +38,9 @@ export interface GenuiBlockProps {
 
 /** Block-wide aggregation state. Grouped radios store one selected label in
  * `answers`; grouped checkboxes store a selected-label array in
- * `multiAnswers`. Keeping the registries separate preserves the existing
- * radio/local-grading string contract while allowing submit to expose one
- * unified `answers` payload (`string | string[]`). */
+ * `multiAnswers` 保存复选框的选中项；显示文案改变时，来源模板保持稳定。
+ * 分开保存两类选项，可保留 radio 和本地评分使用的字符串形式，提交时再统一放入
+ * `answers`（`string | string[]`）。 */
 export interface AnswersState {
   answers: Record<string, string>
   /** Grouped checkbox selections. An empty array is meaningful: the user
@@ -61,8 +61,6 @@ export interface AnswersState {
   setAnswer: (group: string, choice: string) => void
   setMultiAnswer: (group: string, choice: string, checked: boolean) => void
   setField: (id: string, value: string) => void
-  setNumericFieldValidity: (id: string, valid: boolean) => void
-  registerSecretField: (id: string) => void
   clear: () => void
   setLocked: (locked: boolean) => void
 }

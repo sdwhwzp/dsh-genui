@@ -101,6 +101,7 @@ export function insertMissingPropertyCommas(raw: string): { text: string; repair
  *    fail near that quote with "Expected ',' or ']'...".
  * 2. Trailing commas before `}` / `]` or at end of input.
  * 3. Valueless object keys immediately before a complete key-and-colon pair.
+ * 4. CJK commas/colons in structural positions, never inside string content.
  *
  * A shared grammar-aware scan distinguishes object keys from values and
  * checks the continuation after a potential string terminator. Ambiguous
@@ -153,6 +154,17 @@ function isJsonSpace(ch: string | undefined): boolean {
   return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'
 }
 
+/** Read punctuation at a structural boundary, including quote lookahead.
+ * String contents always use the original character, even when their quotes
+ * need repair; a separate quote-toggle normalization pass would corrupt them.
+ */
+function jsonStructureAt(raw: string, index: number): string {
+  const ch = raw[index] ?? '\0'
+  if (ch === '：') return ':'
+  if (ch === '，' || ch === '、' || ch === '；') return ','
+  return ch
+}
+
 /** Skip only complete, valueless object keys followed by a valued member. */
 function skipValuelessKeys(raw: string, start: number, limit = raw.length): { start: number; repairs: number } | null {
   let cursor = start
@@ -167,8 +179,8 @@ function skipValuelessKeys(raw: string, start: number, limit = raw.length): { st
     cursor++
     try { JSON.parse(raw.slice(keyStart, cursor)) } catch { return null }
     while (cursor < limit && isJsonSpace(raw[cursor])) cursor++
-    if (raw[cursor] === ':') return repairs > 0 ? { start: keyStart, repairs } : null
-    if (raw[cursor] !== ',') return null
+    if (jsonStructureAt(raw, cursor) === ':') return repairs > 0 ? { start: keyStart, repairs } : null
+    if (jsonStructureAt(raw, cursor) !== ',') return null
     repairs++
     cursor++
     while (cursor < limit && isJsonSpace(raw[cursor])) cursor++
@@ -190,9 +202,9 @@ function quoteCanClose(raw: string, index: number, key: boolean, scopes: JsonSco
   const skipSpace = (): void => { while (cursor < limit && isJsonSpace(raw[cursor])) cursor++ }
   skipSpace()
   if (cursor >= limit) return true
-  if (key) return raw[cursor] === ':'
+  if (key) return jsonStructureAt(raw, cursor) === ':'
   let scopeIndex = scopes.length - 1
-  if (raw[cursor] === ':') return false
+  if (jsonStructureAt(raw, cursor) === ':') return false
   while (raw[cursor] === '}' || raw[cursor] === ']') {
     const scope = scopes[scopeIndex]
     if (scope === undefined) return false
@@ -205,7 +217,7 @@ function quoteCanClose(raw: string, index: number, key: boolean, scopes: JsonSco
     // whole-body quote alternatives before actually adopting that prefix.
     if (scopeIndex < 0) return complete
   }
-  if (raw[cursor] !== ',') return false
+  if (jsonStructureAt(raw, cursor) !== ',') return false
   const scope = scopes[scopeIndex]
   if (scope === undefined) return false
   cursor++
@@ -226,7 +238,7 @@ function quoteCanClose(raw: string, index: number, key: boolean, scopes: JsonSco
     if (raw[cursor] === '"') {
       cursor++
       skipSpace()
-      return cursor >= limit || raw[cursor] === ':'
+      return cursor >= limit || jsonStructureAt(raw, cursor) === ':'
     }
     if (raw[cursor]!.charCodeAt(0) < 0x20) return false
     cursor++
@@ -252,7 +264,7 @@ function scanFenceCandidate(raw: string, complete: boolean, contentQuotes: Reado
     if (scope !== undefined) scope.expecting = 'comma'
   }
   for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i]!
+    let ch = raw[i]!
     if (escaped) {
       if (inString && ch === '"') interiorQuote = true
       out += ch
@@ -267,6 +279,8 @@ function scanFenceCandidate(raw: string, complete: boolean, contentQuotes: Reado
       // Without any interior quote, a delimiter-looking quote is a normal
       // terminator even if its sibling is malformed. Do not absorb a broken
       // bare value merely to make structural completion succeed.
+      // CJK punctuation can follow an inch mark inside prose; unlike ASCII
+      // delimiters it needs the full continuation check in quoteCanClose.
       const ordinaryEnd = !key && ((!interiorQuote && ',}]:'.includes(raw[next] ?? '\0'))
         || (scopes[scopes.length - 1]?.closer === ']' && raw[next] === ','))
       if (!contentQuotes.has(i) && (ordinaryEnd || quoteCanClose(raw, i, key, scopes, complete))) {
@@ -291,6 +305,8 @@ function scanFenceCandidate(raw: string, complete: boolean, contentQuotes: Reado
       }
       continue
     }
+    const structural = jsonStructureAt(raw, i)
+    if (structural !== ch) { ch = structural; repairs++ }
     if (ch === '"') {
       key = scopes[scopes.length - 1]?.expecting === 'key'
       if (key) {
@@ -340,7 +356,7 @@ function scanFenceCandidate(raw: string, complete: boolean, contentQuotes: Reado
       // Invalid bare values are not quote ambiguity: do not turn an earlier
       // finished string into a container for `broken` / `undefined` tokens.
       let j = i + 1
-      while (j < raw.length && !isJsonSpace(raw[j]) && !'{}[],:"'.includes(raw[j]!)) j++
+      while (j < raw.length && !isJsonSpace(raw[j]) && !'{}[],:"'.includes(jsonStructureAt(raw, j))) j++
       const token = raw.slice(i, j)
       if (!/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(token)) invalidValue = true
       finishValue()

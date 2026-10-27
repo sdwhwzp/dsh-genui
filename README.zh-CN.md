@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 ### 1. 环境准备
 
 安装前请确认满足以下条件：
-- **DSH 版本**：`^0.2.0-rc.1 || ^0.2.1-rc.1`（已在 `dsh-v0.2.0-rc.1` 与 `dsh-v0.2.1-rc.2` 上深度验证）
+- **DSH 版本**：`^0.2.0-rc.1 || ^0.2.1-rc.1`（已在 `dsh-v0.2.0-rc.1` 与 `dsh-v0.2.1-rc.3` 上深度验证）
 - **pnpm 处于 PATH 中**：`dsh plugin` 底层依赖 pnpm。如尚未安装，请执行 `corepack enable` 或 `npm i -g pnpm`，之后**重新打开终端**，确认 `pnpm -v` 可正常输出。
 
 ### 2. 一键安装与激活
@@ -141,6 +141,7 @@ dsh-genui 核心能力矩阵
 
 ### 2. 🎨 30+ 丰富组件生态 (Components Matrix)
 - **展示与排版**：包含指标卡（`stat`，支持 Hero 超大字号与微趋势线 Sparkline）、表格（`table`）、时间线（`timeline`）、代码对比（`diff`）、步骤条（`steps`）、文件树（`file-tree`，支持点击展开折叠）、提示卡（`callout`）、徽章（`badge`）等。
+- **内容字号**：卡片字号会随宿主「设置 → 外观 → 内容字号」增大；宿主设置为 17px 或更小时保留各组件原有字号。独立导出的 HTML 保留原有字号。
 - **高级表格**：
   - 点击表头**纯本地排序**（升序/降序/还原，支持千分位、百分比、货币及万/亿数值感知）；
   - 单元格支持 `bar` 进度条、`ring` 环形、`spark` 趋势线，带正负符号数值自动着色；
@@ -284,7 +285,7 @@ dsh plugin --profile web add link:$PWD
 ```sh
 pnpm run check           # 类型检查 + 单元测试 + 构建
 pnpm run test            # 运行 Vitest 测试套件
-pnpm run check:host-api dsh-v0.2.1-rc.2  # 检查当前发布版 DSH 的公开接口
+pnpm run check:host-api dsh-v0.2.1-rc.3  # 检查当前发布版 DSH 的公开接口
 node scripts/verify-pack.mjs --keep  # 生成并打包校验 tarball
 ```
 
@@ -296,7 +297,7 @@ node scripts/verify-pack.mjs --keep  # 生成并打包校验 tarball
   ```
 - **真机闭环 E2E（调用模型真实响应）**：
   ```sh
-  export DSH_ROOT=/path/to/deepseek-harness-0.2.1-rc.2
+  export DSH_ROOT=/path/to/deepseek-harness-0.2.1-rc.3
   export DSH_BIN="$DSH_ROOT/apps/cli/lib/bin.js"
   DEEPSEEK_API_KEY=sk-... node scripts/e2e.mjs
   ```
@@ -319,7 +320,7 @@ node scripts/verify-pack.mjs --keep  # 生成并打包校验 tarball
 
 GenUI 可在 provider 明确提供的 sidechat surface 上渲染已结算的 `dsh-ui` 围栏。BetterSidebar 使用现有的 `registerSidechatSurfaceAdapter` 能力；其他 provider 可提供可选的 `genuiSidechat` Cordis service。每个 surface 都携带所属线程身份和专属 prompt 回调，因此动作与交互状态留在对应子线程。流式内容及不支持或无效的围栏保留原 Markdown。
 
-请参阅 [sidechat surface adapter 接口说明](docs/sidechat-surfaces.md)。启用 DSH 原生 Side Chat 接入需要其 provider 提供 `genuiSidechat`。
+请参阅 [sidechat surface adapter 接口说明](docs/sidechat-surfaces.md)。BetterSidebar 侧边对话渲染需要包含[配套 provider 实现](https://github.com/omdsh-dev/DSH-better-sidebar/pull/1033)的发布版本；已发布的 0.28.0 尚未提供 `registerSidechatSurfaceAdapter`。启用 DSH 原生 Side Chat 接入需要其 provider 提供 `genuiSidechat`。
 
 ## ❓ 常见问题排查 (FAQ)
 

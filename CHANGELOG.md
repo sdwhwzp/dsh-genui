@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.15.0-dsh.20261027.1] - 2026-10-27
+
+- Integrate upstream font scaling, computed-state corrections, truncation diagnostics and CJK fence repair; retain localized action relay, precise chart totals and direct fence output.
+
+## [0.15.0] - 2026-10-26
+
+### 新增
+
+- 新增 `carousel` 横向卡片轮播和 `image-group` 图片集合，支持响应式排版、图片放大浏览和键盘切换（#359）。
+- 新增 `computed` 响应式计算字段，输入变化后更新关联文字、指标、图表和表格；表达式支持依赖检查、格式化和错误提示（#361）。
+- 增加侧边对话显式接入及通用 `genuiSidechat` surface adapter，渲染与操作按所属子线程隔离；BetterSidebar 使用其配套 service（#360、#367）。
+- 表格普通文本、徽章、变化值及分组和详情首格支持安全外链，点击链接不会同时切换分组或详情状态（#357）。
+
+### 修复
+
+- 围栏 JSON 支持修复结构位置的全角逗号、顿号、分号和冒号，保留字符串内的原始标点，并与引号及缺失括号修复共用解析规则（#369）。
+- Mermaid 管道边标签中的裸 `@` 自动加引号；修复只作用于实际边标签，保留节点文字、已有引号和注释（#366）。
+- 保持跨页签输入字段的稳定身份，防止密码内容进入普通字段。
+- 无效数字输入隐藏后不再提交旧值；动态复选框更新文案时保留选中状态。
+- 面板追加先按顺序合并再验证计算引用，无法解决的引用显示错误。
+- 图表缺失数据保留对应位置，避免绘制成真实零值。
+- 滑块显示值与提交精度保持一致，避免界面显示的数字和实际发送值不同（#353）。
+- 交互操作的转发提示跟随会话语言，避免向模型发送固定英文提示（#364）。
+- 宿主内容字号超过 17px 时，卡片、函数图和 ECharts 预设文字按比例放大，并保留原字号下限；调整字号时保留图例选择和缩放位置（#372）。
+- 表格行、列表项和文件树节点超过数量上限时，校验工具报告实际截断数量；已截掉的字段不会再导致提交校验冲突（#373）。
+
+### 兼容性
+
+- 将当前宿主的公开依赖、安装包验收和双插件验收目标更新为 DSH `0.2.1-rc.3`，继续保留 `0.2.0-rc.1` 最低版本检查。
+- DSH `0.2.1-rc.3` 复用工作区现有空白会话；双插件验收核对请求、响应、选中行和持久化记录对应同一会话。
+- BetterSidebar 侧边对话渲染需要提供 `registerSidechatSurfaceAdapter` 的配套发布版本；DSH 原生 Side Chat 需要 provider 提供 `genuiSidechat`。
+
+### 致谢
+
+- 感谢 [@tinysunspot](https://github.com/tinysunspot) 对全角标点问题的定位与修复建议（[#369](https://github.com/omdsh-dev/dsh-genui/issues/369)），以及 [@Ananpng123](https://github.com/Ananpng123) 对 Mermaid 边标签问题的报告和 [@sunxiuguo](https://github.com/sunxiuguo) 补充的节点内容反例（[#366](https://github.com/omdsh-dev/dsh-genui/issues/366)）。
+- 感谢 [@Taza67](https://github.com/Taza67) 在 [#368](https://github.com/omdsh-dev/dsh-genui/pull/368) 中提交宿主字号跟随的早期实现与问题分析；该改进最终通过 [#372](https://github.com/omdsh-dev/dsh-genui/pull/372) 合入。
+- 感谢 [@wang-kaopu](https://github.com/wang-kaopu) 对字号适配（[#372](https://github.com/omdsh-dev/dsh-genui/pull/372)）与截断诊断（[#373](https://github.com/omdsh-dev/dsh-genui/pull/373)）的贡献。
+
 ## [0.14.0-dsh.20261025.2] - 2026-10-25
 
 - Accept provider-declared sidechat surfaces through the optional `genuiSidechat` service while retaining BetterSidebar integration. Provider aliases share one registration; reused roots keep child-thread action routes and interaction state isolated.

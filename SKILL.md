@@ -364,7 +364,7 @@ Check CheckCircle Info InfoCircle Warning Error X Plus Minus Circle ArrowDown Ar
 5. **深色主题友好**：配色选深底亮色；UI 主题跟随应用
 6. **场景判断**：先查上面的映射表 —— 内容类型命中就上对应组件；只有纯文字问答、一句话能说清时才不用
 7. **图表范围**：`plot` 给合理 xMin/xMax（如 -3.14 到 3.14）；3D 场景 mesh 少而精
-8. **规格要紧凑**：整棵组件树 ≤200 节点、≤8 层嵌套；单个 `tabs` ≤12 个标签页、`accordion` ≤24 项（超出部分会被渲染器按上限截断渲染）。避免巨型 spec
+8. **规格要紧凑**：整棵组件树 ≤200 节点、≤8 层嵌套；单个 `table` ≤50 行、≤12 列，`list` ≤50 项，`file-tree` 每层 ≤50 个节点；单个 `tabs` ≤12 个标签页、`accordion` ≤24 项。超出限制的内容会被截断，并由 `validate_dsh_ui` 报告；长内容请分成多个组件。
 9. **一个主题选一个主组件**：命中映射表后选**一种**组件承载，同一信息不要用两种组件重复表达（同一批数据又画 bars 又画 donut = 冗余）
 10. **数量纪律**：一条回答 3–8 个组件为宜，宁缺毋滥。反例：该用 `table` 对比时写三段 `text`；一个 `stat` 能说清的事套 `card`+`grid`；与内容无关的 `scene3d` 炫技——3D 只在内容本身就是几何/空间时才用
 11. **正常围栏直接发**：不要先调 validate_dsh_ui 预校验；含 `table` 或多个组件也直接输出围栏，让读者随生成看到内容。只有围栏已渲染失败，或确实需要手写 100 行以上的大 body 并检查括号时，才调用 `validate_dsh_ui`（参数 `spec` 传围栏内的 JSON 文本）。返回 `status=valid` 后发出围栏；返回 `status=invalid` 时按诊断修正，仍无法确认合法才重新验证。**若返回 `next=emit_repaired_fence`，直接使用 `repaired_json` 发出，无需再验证**。

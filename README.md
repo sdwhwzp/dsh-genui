@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 ### 1. Prerequisites
 
 Ensure your environment meets the following requirements:
-- **DSH Version**: `^0.2.0-rc.1 || ^0.2.1-rc.1` (verified against `dsh-v0.2.0-rc.1` and `dsh-v0.2.1-rc.2`)
+- **DSH Version**: `^0.2.0-rc.1 || ^0.2.1-rc.1` (verified against `dsh-v0.2.0-rc.1` and `dsh-v0.2.1-rc.3`)
 - **pnpm on PATH**: The `dsh plugin` CLI requires pnpm. If missing: run `corepack enable` or `npm i -g pnpm`, then **open a new terminal** and confirm `pnpm -v` prints a version number.
 
 ### 2. Install & Activate
@@ -141,6 +141,7 @@ dsh-genui Capabilities
 
 ### 2. 🎨 30+ Component Ecosystem
 - **Display & Typography**: Hero banner, Stat cards (`stat` with eyebrow labels, deltas, and sparklines), Tables, Timelines, Code Diffs, Step progress, File trees (interactive expand/collapse), Callouts, and Badges.
+- **Content Font Size**: Card typography grows with the host's Appearance → Content Font Size setting above 17px. At 17px or below, each component keeps its existing size. Standalone HTML exports keep their existing sizes.
 - **Advanced Tables**:
   - Click headers to **sort locally** (ascending / descending / reset) with smart parsing for numbers, currency, commas, percentages, and `k/m/b` units;
   - Columns support inline progress bars (`bar`), rings (`ring`), sparklines (`spark`), and badges;
@@ -285,7 +286,7 @@ dsh plugin --profile web add link:$PWD
 ```sh
 pnpm run check           # Type checks + full unit test suite + build
 pnpm run test            # Run Vitest unit tests
-pnpm run check:host-api dsh-v0.2.1-rc.2  # Check the current published DSH API
+pnpm run check:host-api dsh-v0.2.1-rc.3  # Check the current published DSH API
 node scripts/verify-pack.mjs --keep  # Verify and inspect npm tarball
 ```
 
@@ -297,7 +298,7 @@ node scripts/verify-pack.mjs --keep  # Verify and inspect npm tarball
   ```
 - **Real-Model Integration E2E**:
   ```sh
-  export DSH_ROOT=/path/to/deepseek-harness-0.2.1-rc.2
+  export DSH_ROOT=/path/to/deepseek-harness-0.2.1-rc.3
   export DSH_BIN="$DSH_ROOT/apps/cli/lib/bin.js"
   DEEPSEEK_API_KEY=sk-... node scripts/e2e.mjs
   ```
@@ -324,7 +325,7 @@ You can import `GenuiBlock`, `GenuiActionContext`, and `processGenuiSpec` from `
 
 GenUI can render settled `dsh-ui` fences on provider-declared sidechat surfaces. BetterSidebar uses its `registerSidechatSurfaceAdapter` capability; other providers can expose the optional `genuiSidechat` Cordis service. Each surface carries its owning thread identity and prompt callback, so actions and interaction state stay within that child thread. Streaming rows and unsupported or invalid fences keep their original Markdown.
 
-See [the sidechat surface adapter contract](docs/sidechat-surfaces.md). The DSH native Side Chat provider must expose `genuiSidechat` to enable this integration.
+See [the sidechat surface adapter contract](docs/sidechat-surfaces.md). BetterSidebar support requires a release containing [its provider implementation](https://github.com/omdsh-dev/DSH-better-sidebar/pull/1033); the released 0.28.0 does not expose `registerSidechatSurfaceAdapter`. The DSH native Side Chat provider must expose `genuiSidechat` to enable this integration.
 
 ## ❓ FAQ & Troubleshooting
 
