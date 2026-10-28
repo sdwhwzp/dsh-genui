@@ -7,7 +7,7 @@ const pkg = JSON.parse(await readFile('package.json', 'utf8')) as {
   engines: { dsh: string }
 }
 const dshPeers = Object.entries(pkg.peerDependencies).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
-const supportedRange = '^0.2.0-rc.1 || ^0.2.1-rc.1'
+const supportedRange = '^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2'
 const versionCases = [
   ['0.1.2-rc.1', false],
   ['0.1.7-alpha.1', false],
@@ -21,7 +21,9 @@ const versionCases = [
   ['0.2.1-rc.2', true],
   ['0.2.1-rc.3', true],
   ['0.2.1', true],
-  ['0.2.2-rc.1', false],
+  ['0.2.2-alpha.1', false],
+  ['0.2.2-alpha.2', true],
+  ['0.2.2-rc.1', true],
   ['0.2.2', true],
   ['0.3.0-rc.1', false],
   ['0.3.0', false],

@@ -126,7 +126,9 @@ describe('native chart renderability contract', () => {
     const renderTool = createRenderUiTool()
     const meta = renderTool.output.presentationMeta!({ spec: input })
     const resolved = resolveGenuiSpec(JSON.stringify(input))
-    expect(meta).toEqual(resolved)
+    const { 'dsh-go/view': nativeView, ...webSpec } = meta as Record<string, unknown>
+    expect(webSpec).toEqual(resolved)
+    expect(nativeView).toMatchObject({ type: 'stack', title: '协议别名' })
     expect(meta).toMatchObject({
       title: '协议别名',
       items: [

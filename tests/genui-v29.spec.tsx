@@ -12,7 +12,8 @@ import { GenuiActionContext } from '../src/client/action-context.ts'
 import { GenuiBlock, GENUI_ACTION_DEBOUNCE_MS } from '../src/client/GenuiBlock.tsx'
 import { repairGenuiSpec } from '../src/client/guard.ts'
 import { CORE_PRESETS } from '../src/client/echarts-lazy.ts'
-import { formatChartValue, fractionDigits, tableToCsv, tableToMarkdown } from '../src/client/blocks/charts.tsx'
+import { formatChartValue, fractionDigits } from '../src/client/blocks/charts.tsx'
+import { tableToCsv, tableToMarkdown } from '../src/client/table-export.ts'
 
 afterEach(() => {
   cleanup()

@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 ### 1. 环境准备
 
 安装前请确认满足以下条件：
-- **DSH 版本**：`^0.2.0-rc.1 || ^0.2.1-rc.1`（已在 `dsh-v0.2.0-rc.1` 与 `dsh-v0.2.1-rc.3` 上深度验证）
+- **DSH 版本**：`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`（已在 `dsh-v0.2.0-rc.1` 与 `dsh-v0.2.1-rc.3` 上深度验证）
 - **pnpm 处于 PATH 中**：`dsh plugin` 底层依赖 pnpm。如尚未安装，请执行 `corepack enable` 或 `npm i -g pnpm`，之后**重新打开终端**，确认 `pnpm -v` 可正常输出。
 
 ### 2. 一键安装与激活
@@ -316,6 +316,10 @@ node scripts/verify-pack.mjs --keep  # 生成并打包校验 tarball
 
 ---
 
+### dsh-go 接入
+
+dsh-go 适配使用 App 已有的原生卡片、正文选择与确认、插件面板，无需修改或重新安装 App。网页版继续读取完整的 GenUI 规格；原生面板支持选择、开关、按钮、提交、本地判卷、页签、折叠、复制和受控链接。正文围栏由验证工具生成网页与原生共用的 JSON。面板交互目前需要本机引擎提供 dsh-go 桥接；SSH、中转仍可显示原生工具卡。高级图形和自由输入等缺口会明确提示。详见[接入能力与验证范围](docs/dsh-go.md)。
+
 ### Sidechat surface 接入（可选）
 
 GenUI 可在 provider 明确提供的 sidechat surface 上渲染已结算的 `dsh-ui` 围栏。BetterSidebar 使用现有的 `registerSidechatSurfaceAdapter` 能力；其他 provider 可提供可选的 `genuiSidechat` Cordis service。每个 surface 都携带所属线程身份和专属 prompt 回调，因此动作与交互状态留在对应子线程。流式内容及不支持或无效的围栏保留原 Markdown。
@@ -358,7 +362,7 @@ dsh plugin --profile web add @changfenhuang/dsh-genui
 <details>
 <summary><strong>Q: 渲染 dsh-ui 时界面出现白屏？</strong></summary>
 
-当前版本强依赖 DSH `^0.2.0-rc.1 || ^0.2.1-rc.1`。如运行在较老版本的 DSH 上可能存在 React 上下文兼容问题，请升级 DSH 宿主。
+当前版本强依赖 DSH `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`。如运行在较老版本的 DSH 上可能存在 React 上下文兼容问题，请升级 DSH 宿主。
 </details>
 
 ---

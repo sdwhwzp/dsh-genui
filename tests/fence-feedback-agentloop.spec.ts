@@ -1,13 +1,14 @@
 // 真实 AgentLoop 集成测试：验证首次缺正文时提醒进入下一请求，
 // 以及坏围栏修正只返回 reasoning 时，宿主重试仍能补出正文。
 // 断言 provider 实际收到的请求、重试错误和最终会话正文。
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { LlmRuntime, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -69,9 +70,11 @@ describe('真实 AgentLoop：reasoning-only 后的提醒与重试恢复', () => 
     { name: 'retries when a render correction returns reasoning only', repairBrokenFence: true },
   ])('$name', async ({ repairBrokenFence }) => {
     const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
     for (const plugin of [SessionProjectionRegistry, SessionStore, AgentRegistry, SystemPrompt, ToolRuntime, LlmRuntime]) {
       await ctx.plugin(plugin)
     }
+    await ctx.plugin(NativeToolExecutor)
     applyGenui(ctx, {})
     // 工具注册走 inject fiber，给它一轮微任务落地。
     await new Promise(resolve => setTimeout(resolve, 100))

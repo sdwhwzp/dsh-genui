@@ -152,6 +152,8 @@ export function diagnoseUnknownGenuiFields(value: unknown): GenuiDiagnostic[] {
   if (Array.isArray(root.items) && !isComponentRoot(root)) {
     for (const field of Object.keys(root)) {
       if (field in GENUI_SPEC_SCHEMA.fields) continue
+      // The optional native projection shares the envelope, never web node fields.
+      if (root.type === 'stack' && Array.isArray(root.children) && (field === 'type' || field === 'children')) continue
       pushUnknownField(warnings, 'spec', field, 'spec')
     }
     root.items.forEach((item, index) => visitNativeNodes(item, `items[${index}]`, visit))

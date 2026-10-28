@@ -20,6 +20,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRenderUiTool, createValidateDshUiTool } from './tool.ts'
 import { installFenceFeedback } from './fence-feedback.ts'
+import { installDshGoNative } from './dsh-go-native.ts'
 
 /* ---------------- lazy engine asset route ---------------- */
 
@@ -214,6 +215,7 @@ export interface GenuiPluginConfig {
 }
 
 export function apply(ctx: Context, config?: GenuiPluginConfig): void {
+  installDshGoNative(ctx)
   const renderUiToolEnabled = config?.renderUiTool !== false
   ctx.systemPrompt.section({
     name: 'genui:fence',

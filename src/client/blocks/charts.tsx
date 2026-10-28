@@ -22,16 +22,9 @@ import { GENUI_LIMITS } from '../genui-runtime/index.ts'
 import { GENUI_COMPUTED_CELL } from '../spec.ts'
 import type { GenuiChart, GenuiComputedCell, GenuiTable } from '../spec.ts'
 import { isTableGroupHeaderRow, tableRowsForDetails } from '../table-details.ts'
+import { tableCellText, tableToCsv, tableToMarkdown } from '../table-export.ts'
 
 type TableCell = GenuiTable['rows'][number][number]
-
-/** 读取表格中 Computed 单元格面向用户的显示文字。 */
-function tableCellText(value: unknown): string {
-  if (value !== null && typeof value === 'object' && Object.hasOwn(value, GENUI_COMPUTED_CELL)) {
-    return (value as GenuiComputedCell).formatted
-  }
-  return String(value ?? '')
-}
 
 export const CHART_COLORS = [
   'var(--dsw-static-deepseek-400)',
@@ -181,24 +174,6 @@ function CellRing({ cell }: { cell: TableCell }) {
       <span className={css.cellRingText}>{renderInline(tableCellText(cell), false)}</span>
     </span>
   )
-}
-
-/** Markdown table text for the 复制 Markdown chip (pipes escaped). */
-export function tableToMarkdown(columns: string[], rows: Array<Array<TableCell>>): string {
-  const escape = (v: unknown): string => String(v ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
-  const head = `| ${columns.map(escape).join(' | ')} |`
-  const rule = `| ${columns.map(() => '---').join(' | ')} |`
-  const body = rows.map(row => `| ${columns.map((_c, i) => escape(tableCellText(row[i]))).join(' | ')} |`)
-  return [head, rule, ...body].join('\n')
-}
-
-/** RFC 4180 CSV text for the 复制 CSV chip. */
-export function tableToCsv(rows: Array<Array<TableCell>>): string {
-  const cell = (v: unknown): string => {
-    const s = tableCellText(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return rows.map(row => row.map(cell).join(',')).join('\n')
 }
 
 /** Copy chips above a table (`table.export`). Local clipboard only — no action,
