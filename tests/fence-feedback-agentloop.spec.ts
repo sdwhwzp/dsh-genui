@@ -8,7 +8,6 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { LlmRuntime, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -74,7 +73,10 @@ describe('真实 AgentLoop：reasoning-only 后的提醒与重试恢复', () => 
     for (const plugin of [SessionProjectionRegistry, SessionStore, AgentRegistry, SystemPrompt, ToolRuntime, LlmRuntime]) {
       await ctx.plugin(plugin)
     }
-    await ctx.plugin(NativeToolExecutor)
+    if ('setExecutor' in ctx.tools) {
+      const module = '@deepseek-ai/dsh-tool-executor-native'
+      await ctx.plugin(await import(/* @vite-ignore */ module))
+    }
     applyGenui(ctx, {})
     // 工具注册走 inject fiber，给它一轮微任务落地。
     await new Promise(resolve => setTimeout(resolve, 100))

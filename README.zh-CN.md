@@ -8,7 +8,7 @@
 </p>
 
 [![npm version](https://img.shields.io/npm/v/@changfenhuang/dsh-genui.svg?style=flat-square&color=3B82F6)](https://www.npmjs.com/package/@changfenhuang/dsh-genui)
-[![DSH Compatibility](https://img.shields.io/badge/DSH-^0.2.0--rc.1%20||%20^0.2.1--rc.1-10B981?style=flat-square)](https://github.com/omdsh-dev/dsh-genui)
+[![DSH Compatibility](https://img.shields.io/badge/DSH-^0.2.0--rc.1%20||%20^0.2.1--rc.1%20||%20^0.2.2--alpha.2-10B981?style=flat-square)](https://github.com/omdsh-dev/dsh-genui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![Topic: dsh-plugin](https://img.shields.io/badge/ecosystem-dsh--plugin-purple?style=flat-square)](https://github.com/topics/dsh-plugin)
@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 ### 1. 环境准备
 
 安装前请确认满足以下条件：
-- **DSH 版本**：`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`（已在 `dsh-v0.2.0-rc.1` 与 `dsh-v0.2.1-rc.3` 上深度验证）
+- **DSH 版本**：`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`。上游安装包浏览器验收覆盖 `0.2.0-rc.1`、`0.2.1-rc.3` 与 npm 精确安装的 `0.2.2-alpha.2`；npm `next` 的 `0.2.1-rc.4` 单独执行公开接口、完整单元测试与构建检查。alpha 宿主要求 **Node.js >=24.9.0**，图片集合、计算字段和地图使用官方本地回放验收；第三方侧栏接入在 rc.3 上验收。
 - **pnpm 处于 PATH 中**：`dsh plugin` 底层依赖 pnpm。如尚未安装，请执行 `corepack enable` 或 `npm i -g pnpm`，之后**重新打开终端**，确认 `pnpm -v` 可正常输出。
 
 ### 2. 一键安装与激活
@@ -286,10 +286,14 @@ dsh plugin --profile web add link:$PWD
 pnpm run check           # 类型检查 + 单元测试 + 构建
 pnpm run test            # 运行 Vitest 测试套件
 pnpm run check:host-api dsh-v0.2.1-rc.3  # 检查当前发布版 DSH 的公开接口
+pnpm run check:host-api dsh-v0.2.1-rc.4  # 检查 npm next；与源码宿主浏览器验收分开
+pnpm run check:host-api dsh-v0.2.2-alpha.2  # 检查受支持的 npm alpha 接口、完整测试与构建
 node scripts/verify-pack.mjs --keep  # 生成并打包校验 tarball
 ```
 
 ### 端到端 E2E 验证
+
+CI 与发布任务通过 `node scripts/prepare-published-host.mjs 0.2.2-alpha.2` 从 npm 安装精确版本，在独立 web profile 中验收插件安装包。此通道使用 `DSH_HOST_LAYOUT=registry`、`DSH_HOST_VERSION=0.2.2-alpha.2` 和脚本返回的 `DSH_ROOT`、`DSH_BIN`；源码宿主通道继续固定到对应官方标签。alpha 的接口、图片集合与计算字段、Linux 地图检查全部通过后才发布 npm。
 
 - **视觉回归 E2E（无需模型 API Key）**：
   ```sh
@@ -362,7 +366,7 @@ dsh plugin --profile web add @changfenhuang/dsh-genui
 <details>
 <summary><strong>Q: 渲染 dsh-ui 时界面出现白屏？</strong></summary>
 
-当前版本强依赖 DSH `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`。如运行在较老版本的 DSH 上可能存在 React 上下文兼容问题，请升级 DSH 宿主。
+当前版本要求 DSH `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`。如运行在较老版本的 DSH 上可能存在 React 上下文兼容问题，请升级 DSH 宿主。
 </details>
 
 ---
@@ -389,7 +393,16 @@ dsh plugin --profile web add @changfenhuang/dsh-genui
 
 本项目遵循 [MIT License](LICENSE) 开源协议。
 
+### 交互式地图
+
+`map` 使用延迟加载的 MapLibre 标记和内联路线，并始终提供可键盘操作的地点列表。
+地点选择只在本地更新，可通过既有字段机制持久化并由独立提交按钮发送地点 ID。
+默认是无街道底图的离线坐标地图；外部样式仅由可信宿主配置，不接受模型 JSON URL。
+详见 [地图契约与嵌入、导出说明](docs/map.md)。
+
 ## 部署 fork 兼容性
+
+本 fork 必须单独完成组合 Harness 验收；上游验收不能作为本次部署的验证结果。
 
 围栏修正通知使用 `plugin:@changfenhuang/dsh-genui` 写入会话 V4；重放同时识别新来源和旧插件包装，避免重复修正。
 

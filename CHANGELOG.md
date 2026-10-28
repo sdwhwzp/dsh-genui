@@ -4,29 +4,25 @@
 
 - Repair wrapped member keys and avoid offscreen Mermaid theme work; retain account-aware action relay and direct fence output.
 
-## [Unreleased]
-
-### 修复
-
-- **成员键被写成单元素数组时围栏不再整段降级**：`{"a":1,["b"]:[2]}` 这类正文括号全配平、引号也合法，tier-1（引号 / 尾逗号）与 tier-2 的补闭合符都看不出问题，整段只能退化成代码块；现在 tier-2 的形状阶段把 `["b"]` 原位还原成 `"b"`（整串 parse 通过才采纳），并与既有的 Tetris 表格改写合并为 `rewriteFenceShapes`，一次处理正文里的多种形变缺陷。`["b"]` 后没有冒号（还有第二处结构缺陷）时不猜。注意：同时存在多处结构缺陷的正文仍然降级为代码块，需要重发。
-
-## [0.15.0-dsh.20261027.1] - 2026-10-27
-
-- Integrate upstream font scaling, computed-state corrections, truncation diagnostics and CJK fence repair; retain localized action relay, precise chart totals and direct fence output.
-
-## [0.15.0] - 2026-10-26
+## [0.15.0] - 2026-10-28
 
 ### 新增
 
 - 新增 `carousel` 横向卡片轮播和 `image-group` 图片集合，支持响应式排版、图片放大浏览和键盘切换（#359）。
 - 新增 `computed` 响应式计算字段，输入变化后更新关联文字、指标、图表和表格；表达式支持依赖检查、格式化和错误提示（#361）。
+- 新增网页 `map` 交互地图：地点列表与标记联动、缩放、重置视图和内联路线；选择保持本地交互，通过独立提交按钮发送地点 ID。默认提供无外部底图的坐标地图，地图引擎按需加载，支持独立 HTML 导出（#362）。
+- 新增 dsh-go 原生接入，使用 App 已有的工具卡、正文选择和插件面板，无需修改 App。原生面板支持选择、开关、提交、本地判卷和复制；自由输入、地图及高级图形等能力会明确提示限制（#379）。
 - 增加侧边对话显式接入及通用 `genuiSidechat` surface adapter，渲染与操作按所属子线程隔离；BetterSidebar 使用其配套 service（#360、#367）。
 - 表格普通文本、徽章、变化值及分组和详情首格支持安全外链，点击链接不会同时切换分组或详情状态（#357）。
 
 ### 修复
 
+- SVG 超过 12,000 字符时，验证工具报告字段路径、实际长度和上限，要求精简或拆分；不再把文档截成损坏的 XML。直接渲染与裸 SVG 围栏也在解析前显示超限提示（#378）。
 - 围栏 JSON 支持修复结构位置的全角逗号、顿号、分号和冒号，保留字符串内的原始标点，并与引号及缺失括号修复共用解析规则（#369）。
 - Mermaid 管道边标签中的裸 `@` 自动加引号；修复只作用于实际边标签，保留节点文字、已有引号和注释（#366）。
+- 屏幕外的 Mermaid 图表不再反复同步检查主题，减少无效布局计算（#377）。
+- JSON 成员键被写成 `["key"]:` 时，可在完整解析通过后还原为 `"key":`；同时包含其他结构错误时保留诊断，要求重发（#375）。
+- 地图位于未选中的页签时，已删除地点也会从提交、快照和持久化状态中清空；重新加入该地点不会恢复旧选择。
 - 保持跨页签输入字段的稳定身份，防止密码内容进入普通字段。
 - 无效数字输入隐藏后不再提交旧值；动态复选框更新文案时保留选中状态。
 - 面板追加先按顺序合并再验证计算引用，无法解决的引用显示错误。
@@ -39,6 +35,8 @@
 ### 兼容性
 
 - 将当前宿主的公开依赖、安装包验收和双插件验收目标更新为 DSH `0.2.1-rc.3`，继续保留 `0.2.0-rc.1` 最低版本检查。
+- 支持 DSH `0.2.2-alpha.2`，对齐其 Cordis 依赖与原生工具执行器；CI 和发布任务从 npm 安装精确宿主，验收同一插件包的正文渲染、图片集合、计算字段与地图交互。alpha 宿主要求 Node.js >=24.9.0；第三方侧栏接入仍在 rc.3 上验收。
+- 将 npm `next` 的 DSH `0.2.1-rc.4` 纳入 CI 和发布前的公开接口、完整单元测试及构建检查；继续保留 rc.3 和最低版本宿主验证。
 - DSH `0.2.1-rc.3` 复用工作区现有空白会话；双插件验收核对请求、响应、选中行和持久化记录对应同一会话。
 - BetterSidebar 侧边对话渲染需要提供 `registerSidechatSurfaceAdapter` 的配套发布版本；DSH 原生 Side Chat 需要 provider 提供 `genuiSidechat`。
 
@@ -47,6 +45,8 @@
 - 感谢 [@tinysunspot](https://github.com/tinysunspot) 对全角标点问题的定位与修复建议（[#369](https://github.com/omdsh-dev/dsh-genui/issues/369)），以及 [@Ananpng123](https://github.com/Ananpng123) 对 Mermaid 边标签问题的报告和 [@sunxiuguo](https://github.com/sunxiuguo) 补充的节点内容反例（[#366](https://github.com/omdsh-dev/dsh-genui/issues/366)）。
 - 感谢 [@Taza67](https://github.com/Taza67) 在 [#368](https://github.com/omdsh-dev/dsh-genui/pull/368) 中提交宿主字号跟随的早期实现与问题分析；该改进最终通过 [#372](https://github.com/omdsh-dev/dsh-genui/pull/372) 合入。
 - 感谢 [@wang-kaopu](https://github.com/wang-kaopu) 对字号适配（[#372](https://github.com/omdsh-dev/dsh-genui/pull/372)）与截断诊断（[#373](https://github.com/omdsh-dev/dsh-genui/pull/373)）的贡献。
+- 感谢 [@TomXPRIME](https://github.com/TomXPRIME) 对 SVG 超限截断问题的报告（[#378](https://github.com/omdsh-dev/dsh-genui/issues/378)）。
+- 感谢 [@sunxiuguo](https://github.com/sunxiuguo) 的地图实现（[#362](https://github.com/omdsh-dev/dsh-genui/pull/362)）；原始提交与作者署名保留在集成历史中。响应式计算（#361）与通用侧边对话接入（#367）由 [@wang-kaopu](https://github.com/wang-kaopu) 贡献。
 
 ## [0.14.0-dsh.20261025.2] - 2026-10-25
 

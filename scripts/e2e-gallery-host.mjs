@@ -1,4 +1,4 @@
-/** 为 rc.3 的无密钥 smoke 验收提供真实会话校验；运行文件存放在本次 DSH_HOME。 */
+/** 为固定宿主的无密钥 smoke 验收提供真实会话校验；运行文件存放在本次 DSH_HOME。 */
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile, access, copyFile } from 'node:fs/promises'
@@ -34,12 +34,14 @@ export function gallerySmokeEnvironment(source, dshHome) {
 }
 
 /** 在真实宿主中建立本地 ReplayAdapter 会话并打开浏览器页面。 */
-export async function prepareGalleryConversation({ dshRoot, dshHome, spec }) {
-  const host = JSON.parse(await readFile(join(dshRoot, 'apps/cli/package.json'), 'utf8'))
+export async function prepareGalleryConversation({ dshRoot, dshHome, spec, publishedHost }) {
+  const host = publishedHost === undefined
+    ? JSON.parse(await readFile(join(dshRoot, 'apps/cli/package.json'), 'utf8'))
+    : { version: publishedHost.hostVersion }
   // Minimum rc.1 continues to run the reusable DOM-fence visual checks only.
   if (host.version === '0.2.0-rc.1') return null
-  assert.equal(host.version, '0.2.1-rc.3', 'Unrecognized host must not silently skip conversation coverage')
-  const replayModule = join(dshRoot, 'packages/test-support/llm-replay/lib/index.js')
+  assert.ok(['0.2.1-rc.3', '0.2.2-alpha.2'].includes(host.version), 'Unrecognized host must not silently skip conversation coverage')
+  const replayModule = publishedHost?.modules.replayModule ?? join(dshRoot, 'packages/test-support/llm-replay/lib/index.js')
   await access(replayModule) // Missing official build output is a failure, not a skip.
   const root = join(dshHome, 'gallery-e2e')
   await mkdir(join(root, 'workspace'), { recursive: true })
@@ -157,7 +159,7 @@ export async function prepareGalleryConversation({ dshRoot, dshHome, spec }) {
     },
     assertNoActions,
     editPanelBeforeAppend, checkPanelAfterAppend,
-    /** 在已安装的 rc.3 宿主中验收计算组件和提交动作。 */
+    /** 在已安装的固定宿主中验收计算组件和提交动作。 */
     async verifyComputed({ page, browser, artifactsDir }) {
       return runComputedBrowserChecks({ page, browser, artifactsDir, verifySubmit: async renderedRoot => {
         await renderedRoot.getByRole('button', { name: 'Send computed', exact: true }).click()

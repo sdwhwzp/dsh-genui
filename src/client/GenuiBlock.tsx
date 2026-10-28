@@ -20,6 +20,7 @@ import { compileSubmissionRegistry } from './submission-registry.ts'
 import { evaluateComputed, resolveComputedSpec } from './computed.ts'
 import { parseDecimalNumber } from './safe-math.ts'
 import { walkGenuiNodes } from './walk-spec.ts'
+import { repairMap } from './map-data.ts'
 
 export const GENUI_ACTION_DEBOUNCE_MS = 300
 
@@ -102,13 +103,17 @@ function GenuiBlockInstance({ spec, stateKey, animateEntrance = true, initialSta
     const numeric = new Set<string>()
     const secret = new Set<string>()
     const declared = new Set<string>()
+    const mapOptions = new Map<string, Set<string>>()
     walkGenuiNodes(spec, node => {
-      if ((node.type === 'input' || node.type === 'textarea' || node.type === 'select' || node.type === 'slider') && node.id !== undefined) declared.add(node.id)
+      if ((node.type === 'input' || node.type === 'textarea' || node.type === 'select' || node.type === 'slider' || node.type === 'map') && node.id !== undefined) declared.add(node.id)
+      if (node.type === 'map' && node.id !== undefined) {
+        mapOptions.set(node.id, new Set(repairMap(node)?.locations.map(location => location.id)))
+      }
       if (node.type !== 'input' || node.id === undefined) return
       if (node.inputType === 'number') numeric.add(node.id)
       if (node.inputType === 'password') secret.add(node.id)
     })
-    return { numeric, secret, declared }
+    return { numeric, secret, declared, mapOptions }
   }, [spec])
   const secretFields = fieldKinds.secret
   // 输入草稿始终归属于字段；计算使用最近的有效数字，提交与保存使用草稿值。
@@ -119,12 +124,14 @@ function GenuiBlockInstance({ spec, stateKey, animateEntrance = true, initialSta
     return { fields, numericValues }
   })
   const fields = useMemo(() => Object.fromEntries(Object.entries(fieldState.fields)
-    .filter(([id]) => fieldKinds.declared.has(id) && !secretFields.has(id))), [fieldState.fields, fieldKinds, secretFields])
+    .filter(([id]) => fieldKinds.declared.has(id) && !secretFields.has(id))
+    .map(([id, value]) => [id, fieldKinds.mapOptions.get(id)?.has(value) === false ? '' : value])), [fieldState.fields, fieldKinds, secretFields])
   // 替换内容可能沿用表单标识并移除字段；已移除字段不能进入草稿、导出或后续提交。
   useEffect(() => {
     setFieldState(prev => {
       const entries = Object.entries(prev.fields).filter(([id]) => fieldKinds.declared.has(id) && !secretFields.has(id))
-      if (entries.length === Object.keys(prev.fields).length) return prev
+        .map(([id, value]): [string, string] => [id, fieldKinds.mapOptions.get(id)?.has(value) === false ? '' : value])
+      if (entries.length === Object.keys(prev.fields).length && entries.every(([id, value]) => prev.fields[id] === value)) return prev
       return { fields: Object.fromEntries(entries), numericValues: Object.fromEntries(Object.entries(prev.numericValues)
         .filter(([id]) => fieldKinds.numeric.has(id) && !secretFields.has(id))) }
     })

@@ -1,7 +1,7 @@
 {
   "name": "@changfenhuang/dsh-genui",
   "description": "GenUI for DeepSeek Harness: interactive UI components rendered inline in assistant replies via the ```dsh-ui fence — layout, charts, plots, forms, quizzes, mermaid, 3D scenes, and an action event loop back to the model. Ships the fence-teaching host plugin, the browser renderer (client half), and the genui skill.",
-  "version": "0.15.0-dsh.20261028.1",
+  "version": "0.15.0-dsh.20261028.2",
   "icon": "./assets/genui-icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -23,7 +23,8 @@
     "./assets/echarts-core": "./src/client/asset-echarts-core.ts",
     "./assets/echarts": "./src/client/asset-echarts.ts",
     "./assets/standalone": "./lib/assets/standalone-runtime.js",
-    "./skill": "./SKILL.md"
+    "./skill": "./SKILL.md",
+    "./assets/maplibre": "./lib/assets/maplibre.js"
   },
   "files": [
     "assets/genui-icon.svg",
@@ -50,7 +51,9 @@
     "lib/assets/echarts-core.js",
     "lib/assets/echarts-full.js",
     "ICON-NAMES.md",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "lib/assets/maplibre.js",
+    "docs/map.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -170,6 +173,7 @@
     "immer": "11.1.21",
     "jsdom": "^25.0.0",
     "lightningcss": "^1.25.0",
+    "maplibre-gl": "6.16.0",
     "mdast-util-gfm": "3.1.0",
     "mdast-util-math": "3.0.0",
     "mermaid": "11.16.0",
@@ -192,7 +196,7 @@
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.json && tsdown",
     "test": "vitest run",
-    "check": "node scripts/clean.mjs && tsc -p tsconfig.json && vitest run && tsdown && node scripts/check-standalone.mjs",
+    "check": "node scripts/clean.mjs && tsc -p tsconfig.json && vitest run && tsdown && node scripts/check-standalone.mjs && node scripts/check-map-assets.mjs",
     "check:host-api": "node scripts/check-host-api.mjs",
     "prepack": "node scripts/prepack.mjs"
   },

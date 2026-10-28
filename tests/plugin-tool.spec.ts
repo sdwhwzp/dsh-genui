@@ -44,6 +44,16 @@ describe('render_ui tool definition', () => {
 })
 
 describe('render_ui execute', () => {
+  it('rejects oversized SVG with its path and lengths before reporting a valid delivery', async () => {
+    const code = `<svg>${' '.repeat(GENUI_LIMITS.maxCode)}</svg>`
+    const spec = { items: [{ type: 'svg', code }] }
+    const result = String(await createValidateDshUiTool().execute({ spec }))
+    expect(result).toContain('status=invalid')
+    expect(result).toContain(`items[0].code length ${code.length} exceeds SVG limit ${GENUI_LIMITS.maxCode}`)
+    expect(result).toContain('next=fix_and_revalidate')
+    await expect(tool.execute({ spec })).rejects.toThrow('exceeds SVG limit')
+  })
+
   it('returns a render summary for a valid spec', async () => {
     const value = await tool.execute({ spec: { title: '监控面板', items: [text('a'), { type: 'stat', label: 'CPU', value: '42%' }] } })
     expect(String(value)).toContain('监控面板')

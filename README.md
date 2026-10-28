@@ -8,7 +8,7 @@
 </p>
 
 [![npm version](https://img.shields.io/npm/v/@changfenhuang/dsh-genui.svg?style=flat-square&color=3B82F6)](https://www.npmjs.com/package/@changfenhuang/dsh-genui)
-[![DSH Compatibility](https://img.shields.io/badge/DSH-^0.2.0--rc.1%20||%20^0.2.1--rc.1-10B981?style=flat-square)](https://github.com/omdsh-dev/dsh-genui)
+[![DSH Compatibility](https://img.shields.io/badge/DSH-^0.2.0--rc.1%20||%20^0.2.1--rc.1%20||%20^0.2.2--alpha.2-10B981?style=flat-square)](https://github.com/omdsh-dev/dsh-genui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![Topic: dsh-plugin](https://img.shields.io/badge/ecosystem-dsh--plugin-purple?style=flat-square)](https://github.com/topics/dsh-plugin)
@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/f5db33ec-7471-4d4a-a85b-79c9962ab4ef
 ### 1. Prerequisites
 
 Ensure your environment meets the following requirements:
-- **DSH Version**: `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2` (verified against `dsh-v0.2.0-rc.1` and `dsh-v0.2.1-rc.3`)
+- **DSH Version**: `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`. Upstream packed browser acceptance covers `0.2.0-rc.1`, `0.2.1-rc.3` and the exact npm host `0.2.2-alpha.2`; npm `next` version `0.2.1-rc.4` has separate public-API, full-unit-suite and build checks. The alpha host requires **Node.js >=24.9.0**. Its gallery, computed-field and Map acceptance uses official local replay; third-party sidebar integration is checked on rc.3.
 - **pnpm on PATH**: The `dsh plugin` CLI requires pnpm. If missing: run `corepack enable` or `npm i -g pnpm`, then **open a new terminal** and confirm `pnpm -v` prints a version number.
 
 ### 2. Install & Activate
@@ -287,10 +287,14 @@ dsh plugin --profile web add link:$PWD
 pnpm run check           # Type checks + full unit test suite + build
 pnpm run test            # Run Vitest unit tests
 pnpm run check:host-api dsh-v0.2.1-rc.3  # Check the current published DSH API
+pnpm run check:host-api dsh-v0.2.1-rc.4  # Check npm next; separate from source-host browser acceptance
+pnpm run check:host-api dsh-v0.2.2-alpha.2  # Check the supported npm alpha API, full suite and build
 node scripts/verify-pack.mjs --keep  # Verify and inspect npm tarball
 ```
 
 ### End-to-End (E2E) Testing
+
+CI and the release workflow install `0.2.2-alpha.2` from npm with `node scripts/prepare-published-host.mjs 0.2.2-alpha.2`, then verify the packed plugin in a fresh web profile. This lane uses `DSH_HOST_LAYOUT=registry` and `DSH_HOST_VERSION=0.2.2-alpha.2` with the returned `DSH_ROOT` and `DSH_BIN`; the source-host lanes remain pinned to their official tags. The alpha API, gallery/computed and Linux Map checks must pass before npm publication.
 
 - **Visual E2E Smoke (No Model API Key Required)**:
   ```sh
@@ -367,7 +371,7 @@ dsh plugin --profile web add @changfenhuang/dsh-genui
 <details>
 <summary><strong>Q: The chat screen goes blank when rendering a fence?</strong></summary>
 
-This version strictly requires DSH `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`. Older host versions lack necessary React slot/context capabilities; please upgrade DSH.
+This version requires DSH `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2`. Older host versions lack necessary React slot/context capabilities; please upgrade DSH.
 </details>
 
 ---
@@ -394,7 +398,18 @@ This version strictly requires DSH `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2
 
 This project is licensed under the [MIT License](LICENSE).
 
+### Interactive maps
+
+The `map` node combines lazy MapLibre markers and inline routes with an
+always-available keyboard-operable location list. Selection stays local and can
+be persisted/submitted as a stable location ID through the existing fields
+contract. The default is an offline blank coordinate map, not a street basemap;
+external styles belong to trusted host configuration, never model JSON.
+See [the map contract and embedding/export guide](docs/map.md).
+
 ## Deployment fork compatibility
+
+This fork requires its own combined Harness acceptance; upstream acceptance does not validate this deployment.
 
 Fence-repair notices use `plugin:@changfenhuang/dsh-genui` for Session V4 writes; replay recognizes both this source and the legacy plugin wrapper to prevent duplicate corrections.
 
