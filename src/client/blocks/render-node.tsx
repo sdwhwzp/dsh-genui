@@ -58,11 +58,18 @@ function splitStatValue(value: string): {
   const match = /^([+\-−]?[\d.,]+(?:[eE][+\-]?\d+)?)\s*(.*)$/.exec(value.trim())
   if (match === null || match[1] === undefined) return { num: value, unit: '', numeric: undefined, decimals: 0 }
   const raw = match[1]
-  const plain = raw.replace(/[,，]/g, '')
+  // A comma is a thousands separator only in the unambiguous grouped shape
+  // (`1,234`, `1,632.80`). Anywhere else it is a decimal separator — ru/de/fr
+  // write `1,6328` — and stripping it would silently multiply the metric by a
+  // power of ten and drop the fraction. Such values are rendered verbatim
+  // (numeric === undefined) instead of being reparsed and re-printed.
+  const hasComma = /[,，]/.test(raw)
+  const grouped = /^[+\-−]?\d{1,3}(?:[,，]\d{3})+(?:\.\d+)?$/.test(raw)
+  const plain = grouped ? raw.replace(/[,，]/g, '') : raw
   const parsed = Number(plain)
-  // Commas are thousands separators in a number, but a grouped metric like
-  // "1,2" is not worth animating — keep it static.
-  const numeric = Number.isFinite(parsed) && !/[eE]/.test(plain) ? parsed : undefined
+  const numeric = (!hasComma || grouped) && Number.isFinite(parsed) && !/[eE]/.test(plain)
+    ? parsed
+    : undefined
   const decimals = plain.includes('.') ? (plain.split('.')[1] ?? '').length : 0
   return { num: raw, unit: match[2] ?? '', numeric, decimals: Math.min(decimals, 4) }
 }
@@ -271,8 +278,7 @@ function renderNodeBody(
   if (node.when !== undefined && answers !== undefined && !evaluateWhen(node.when, answers)) return null
   // Depth guard: a pathological spec must never recurse past the limit
   // (stack overflow / DOM explosion). The fence path already repairs specs
-  // against the same limit; this is the belt-and-suspenders for direct
-  // GenuiBlock use and plugin-registered custom renderers.
+  // against the same limit; this also protects direct GenuiBlock use.
   if (depth > GENUI_LIMITS.maxDepth) return null
 
   switch (node.type) {
@@ -630,7 +636,7 @@ function renderNodeBody(
     case 'diagram': return <DiagramNode key={key} node={node} />
 
     case 'echart': return <EChartNode key={key} node={node} />
-    default: return null
+    default: return <div key={key} role="alert" data-genui-error>{t('err.unknownType', { type: String((node as { type: string }).type) })}</div>
   }
 }
 

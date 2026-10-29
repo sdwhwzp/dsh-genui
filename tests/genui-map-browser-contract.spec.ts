@@ -2,12 +2,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import assert from 'node:assert/strict'
 import { within } from '@testing-library/dom'
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import ts from 'typescript'
+import { promisify } from 'node:util'
 import { parse } from 'yaml'
 import { assertMapChecksPassed, assertOfflineMapArtifact, createMapSpec, mapBrowserLaunchOptions, measureRoutePixels, recordMapCheckFailure, safeMapError, validateMapMode } from '../scripts/map-acceptance/contract.mjs'
 import { assertMapSubmission, mapConversationTitle, prepareMapConversation, replayChunks } from '../scripts/e2e-map-host.mjs'
@@ -246,14 +246,9 @@ describe('Map real-browser acceptance contract (no browser launched)', () => {
     expect(reset).toBeGreaterThan(start)
     expect(west).toBeGreaterThan(reset)
   })
-  it('type-checks the actual browser fixture public API calls without launching a browser', () => {
-    const options: ts.CompilerOptions = { strict: true, noEmit: true, skipLibCheck: true,
-      target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
-      jsx: ts.JsxEmit.ReactJSX, allowImportingTsExtensions: true, baseUrl: process.cwd(), paths: {
-        '@changfenhuang/dsh-genui/embed': ['src/client/embed.ts'], '@map-test/i18n': ['src/client/i18n/runtime.ts'],
-        '@map-test/theme': ['src/client/artifact/standalone-theme.ts'],
-      } }
-    const program = ts.createProgram([resolve('tests/browser/map.tsx')], options)
-    expect(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([])
-  }, 60000)
+  it('type-checks the actual browser fixture public API calls without launching a browser', async () => {
+    await promisify(execFile)(process.execPath, [resolve('tests/fixtures/map-typecheck.mjs'), 'browser-fixture'], {
+      timeout: Number(process.env.GENUI_TYPECHECK_TIMEOUT_MS ?? 60000), windowsHide: true,
+    })
+  }, Number(process.env.GENUI_TYPECHECK_TIMEOUT_MS ?? 60000))
 })

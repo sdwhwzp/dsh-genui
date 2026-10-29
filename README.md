@@ -327,6 +327,27 @@ You can import `GenuiBlock`, `GenuiActionContext`, and `processGenuiSpec` from `
 
 The dsh-go integration uses the App’s existing native cards, inline choices and plugin panels; no App patch or replacement APK is needed. The complete web spec stays authoritative. Native panels support choices, switches, buttons, submissions, local grading, tabs, accordions, copy and confirmed HTTPS links. Validation can produce one JSON fence readable by both renderers. Panels currently require the local-engine dsh-go bridge; SSH and relay hosts retain native tool cards. Advanced graphics and free-text input remain explicit limitations. See [capabilities and verification](docs/dsh-go.md).
 
+### Theming: non-opaque host canvases
+
+Every surface resolves through one chain: `--dsl-g-surface` → `--dsh-genui-surface` → `--dsw-alias-bg-layer-2` → … → `#fff`. A skin that paints the page itself (wallpaper, glass / translucent look) can pin the surface once without touching the host's own tokens:
+
+```css
+:root { --dsh-genui-surface: rgba(255, 255, 255, 0.58); }
+body[data-ds-dark-theme] { --dsh-genui-surface: rgba(32, 32, 34, 0.54); }
+```
+
+`callout` and toned `card` washes are painted *over* that surface, so they stay readable on any canvas. `card.flat` and `table` are surface-less by design (a printed block, a bare data grid) and would show a non-opaque page through — they fill only when a skin asks for it:
+
+```css
+:root {
+  --dsh-genui-surface: rgba(255, 255, 255, 0.58);      /* cards, callouts, controls */
+  --dsh-genui-surface-flat: var(--dsh-genui-surface);  /* card.flat */
+  --dsh-genui-surface-table: var(--dsh-genui-surface); /* table */
+}
+```
+
+Leaving the last two unset keeps today's look (transparent table, 2.5% printed flat card); pointing them at `var(--dsh-genui-surface)` gives all three one fill. Wrapping a table in a `card` fills it too, since the parent surface shows through (issue #398).
+
 ---
 
 ### Sidechat surfaces (optional)

@@ -23,8 +23,8 @@
    Light mode uses no tint at all — see the token block below for why. */
 body[data-ds-dark-theme] .block,
 body[data-ds-dark-theme] .panel {
-  --dsl-g-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 4%,
-    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, transparent))));
+  --dsl-g-surface: var(--dsh-genui-surface, color-mix(in srgb, var(--dsw-alias-label-primary) 4%,
+    var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, transparent)))));
   --dsl-g-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 24px rgba(0, 0, 0, 0.18);
   /* A hue over a near-black page loses more contrast than the same hue over
      white (the base colour is already dark), so the surface wash needs a
@@ -121,8 +121,17 @@ body[data-ds-dark-theme] .panel {
      #159 as "every card is grey". The 1px border keeps its 12% weight and is
      drawn over the surface, so on white it resolves to a quiet #e2e2e3
      hairline instead of 0.10.0's #cdcdce. */
-  --dsl-g-surface: var(--dsw-alias-bg-layer-2,
-    var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, #fff)));
+  /* `--dsh-genui-surface` is the skin's hook: a wallpaper / glass theme that
+     clears the host canvas can pin the surface (any colour, alpha allowed)
+     once on `:root` and get it everywhere. Without this indirection a skin
+     value is silently shadowed — this declaration lives on .block/.panel, so
+     the cascade never lets a :root one through.
+     Known limit (issue #398): with the default chain the surface is exactly
+     the host's layer colour. If a skin makes THAT colour translucent, the
+     inside of cards follows it; callout/tone washes stay readable because
+     they sit on top of the surface rather than replacing it. */
+  --dsl-g-surface: var(--dsh-genui-surface, var(--dsw-alias-bg-layer-2,
+    var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, #fff))));
   /* Borders separate, shadows lift (design standard: "shadows over borders"):
      the outline stays quiet and the layered shadow carries the depth, with the
      first layer at the documented minimum `0 1px 3px rgba(0,0,0,0.10)`. */
@@ -806,6 +815,10 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 .tableWrap {
   border-radius: var(--dsl-g-radius-control);
   border: 1px solid var(--dsl-g-border-surface);
+  /* A table is a bare data grid by default (hairline box + 2.5% zebra). The
+     fill is opt-in for skins whose canvas is not opaque: they set this to
+     var(--dsh-genui-surface) to turn the grid into a panel (issue #398). */
+  background: var(--dsh-genui-surface-table, transparent);
   /* A table whose nowrap cells exceed the column width must scroll, not clip
      (mirrors the shell markdown table's .tableScroll pattern). */
   overflow-x: auto;
@@ -834,6 +847,25 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   font-variant-numeric: tabular-nums;
   line-height: 1.5;
   vertical-align: middle;
+}
+/* `table.wrap: true` — prose layout: the table tracks the container and every
+   cell wraps, so a column of full sentences reads in place instead of
+   stretching the table into a horizontal scrollbar (#382). Opt-in because the
+   data-table voice above (nowrap + horizontal scroll on overflow, #326) is
+   still the right shape for short values.
+
+   `anywhere` lets long identifiers participate in intrinsic sizing; the
+   readable column floor prevents #326's one-glyph columns. When those floors
+   exceed the container, the existing wrapper scrolls. Direct ownership keeps
+   a detail's nested table independent. :where keeps explicit newline/code
+   whitespace rules below more specific than this default prose rule. */
+.tableWrapProse > .table { width: 100%; min-width: 0; table-layout: auto; }
+.tableWrapProse > .table > * > :where(tr) > * {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  min-width: 6em;
+  vertical-align: top;
 }
 /* The first column is the row's name: give it the weight of a label so a
    table reads as "these rows, these values" instead of a uniform grid. */
@@ -879,10 +911,17 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
    automatic minimum size collapses, the column can then be sized below its
    content, and the still-unbroken text is painted over the next column (#280).
    Keep the cell's own line-breaking contract for every table section. */
-.table > thead > tr > th:not(.tdCode):not(.tdMultiline) .inlineCode,
-.table > tbody > tr:not(.detailRow) > td:not(.tdCode):not(.tdMultiline) .inlineCode,
-.table > tfoot > tr > td:not(.tdCode):not(.tdMultiline) .inlineCode {
+.tableWrap:not(.tableWrapProse) > .table > thead > tr > th:not(.tdCode):not(.tdMultiline) .inlineCode,
+.tableWrap:not(.tableWrapProse) > .table > tbody > tr:not(.detailRow) > td:not(.tdCode):not(.tdMultiline) .inlineCode,
+.tableWrap:not(.tableWrapProse) > .table > tfoot > tr > td:not(.tdCode):not(.tdMultiline) .inlineCode {
   white-space: pre;
+}
+/* Host markdown makes code chips inline-flex. Prose cells need an inline box
+   that can break across lines while retaining spaces and copied newlines. */
+.tableWrapProse > .table > * > :where(tr:not(.detailRow)) > * .inlineCode {
+  display: inline;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 /* Rich-text owners must paint the real newlines kept by renderInline. Scope
    this to prose/labels: table data keeps nowrap and code keeps pre-wrap. For
@@ -1143,10 +1182,27 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   background: var(--dsl-g-surface);
   box-shadow: var(--dsl-g-shadow-card);
 }
-.calloutInfo { background: color-mix(in srgb, var(--dsl-g-accent) var(--dsl-g-tint), transparent); }
-.calloutSuccess { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent); }
-.calloutWarning { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) var(--dsl-g-tint), transparent); }
-.calloutError { background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ff6b6b) var(--dsl-g-tint), transparent); }
+/* Tone = a wash ON TOP of the surface, never a replacement for it. Writing the
+   tint into `background` reset background-color to transparent, so on a canvas
+   that is not opaque (a wallpaper / glass skin) the callout showed the page
+   pattern through its own text (issue #398). `.callout` keeps the opaque
+   surface; the hue is painted over it as an image. */
+.calloutInfo {
+  --dsl-callout-wash: color-mix(in srgb, var(--dsl-g-accent) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-callout-wash), var(--dsl-callout-wash));
+}
+.calloutSuccess {
+  --dsl-callout-wash: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-callout-wash), var(--dsl-callout-wash));
+}
+.calloutWarning {
+  --dsl-callout-wash: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-callout-wash), var(--dsl-callout-wash));
+}
+.calloutError {
+  --dsl-callout-wash: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ff6b6b) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-callout-wash), var(--dsl-callout-wash));
+}
 .calloutInfo .calloutTitle { color: var(--dsw-alias-state-business-primary, #4f8ef7); }
 .calloutSuccess .calloutTitle { color: var(--dsw-alias-state-success-primary, #2f9e6b); }
 .calloutWarning .calloutTitle { color: var(--dsw-alias-state-warn-primary, #b8860b); }
@@ -1485,11 +1541,24 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
 }
 
-/* Card surface tones: tint + colored title, no bars. */
-.cardInfo { background: color-mix(in srgb, var(--dsl-g-accent) var(--dsl-g-tint), transparent); }
-.cardSuccess { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent); }
-.cardWarning { background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) var(--dsl-g-tint), transparent); }
-.cardDanger { background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ff6b6b) var(--dsl-g-tint), transparent); }
+/* Card surface tones: tint + colored title, no bars. Same rule as the callout
+   tones above — the wash layers over the card's own surface (issue #398). */
+.cardInfo {
+  --dsl-card-wash: color-mix(in srgb, var(--dsl-g-accent) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-card-wash), var(--dsl-card-wash));
+}
+.cardSuccess {
+  --dsl-card-wash: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-card-wash), var(--dsl-card-wash));
+}
+.cardWarning {
+  --dsl-card-wash: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-card-wash), var(--dsl-card-wash));
+}
+.cardDanger {
+  --dsl-card-wash: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ff6b6b) var(--dsl-g-tint), transparent);
+  background-image: linear-gradient(var(--dsl-card-wash), var(--dsl-card-wash));
+}
 .cardInfo > .cardTitle { color: var(--dsw-alias-state-business-primary, #4f8ef7); }
 .cardSuccess > .cardTitle { color: var(--dsw-alias-state-success-primary, #2f9e6b); }
 .cardWarning > .cardTitle { color: var(--dsw-alias-state-warn-primary, #b8860b); }
@@ -2037,7 +2106,11 @@ button.ftNameBtn[aria-expanded] { cursor: pointer; }
   flex-direction: column;
   gap: var(--dsl-g-gap-md);
   padding: var(--dsl-g-gap-lg);
-  border: 1px solid var(--dsl-g-border);
+  /* Same surface as a card: the placeholder is announcing a block, and a block
+     in this product is an elevated surface. Without it the shimmer bars sit on
+     the page colour and the whole thing reads as a rectangle of nothing. */
+  background: var(--dsl-g-surface);
+  border: 1px solid var(--dsl-g-border-surface);
   border-radius: var(--dsl-g-radius-surface);
   background: var(--dsl-g-surface);
 }
@@ -2050,14 +2123,96 @@ button.ftNameBtn[aria-expanded] { cursor: pointer; }
 .skeletonBars { display: flex; gap: var(--dsl-g-gap-sm); }
 .skeletonBars > span { display: block; height: 44px; border-radius: var(--dsl-g-radius-control); }
 .skeletonBlock { display: block; height: 76px; border-radius: var(--dsl-g-radius-control); }
+/* The known title is real text, not a bar: seeing the card's own heading keeps
+   the placeholder from reading as a different component. */
+.skeletonHeading {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  opacity: 0.75;
+}
+
+.skeletonRows { display: flex; flex-direction: column; gap: var(--dsl-g-gap-sm); }
+.skeletonRows > span { display: block; border-radius: var(--dsl-g-radius-pill); }
+
+.skeletonTable { display: flex; flex-direction: column; gap: 6px; }
+.skeletonRowHead,
+.skeletonRow { display: flex; gap: var(--dsl-g-gap-md); }
+.skeletonRowHead > span,
+.skeletonRow > span { display: block; height: 10px; border-radius: var(--dsl-g-radius-pill); }
+.skeletonRowHead { padding-bottom: 6px; border-bottom: 1px solid var(--dsl-g-border); }
+.skeletonRowHead > span { height: 8px; opacity: 0.85; }
+
+.skeletonChart { display: flex; gap: 6px; align-items: stretch; height: 96px; }
+.skeletonAxis { width: 22px; border-radius: var(--dsl-g-radius-control); }
+.skeletonChart .skeletonBars { flex: 1; align-items: flex-end; gap: var(--dsl-g-gap-md); }
+.skeletonChart .skeletonBars > span { flex: 1; border-radius: 4px 4px 2px 2px; }
+
+.skeletonStat { display: flex; flex-direction: column; gap: var(--dsl-g-gap-sm); }
+.skeletonStat > span { display: block; border-radius: var(--dsl-g-radius-control); }
+
+.skeletonDiagram { display: flex; align-items: center; gap: var(--dsl-g-gap-md); }
+.skeletonDiagram > span:first-child,
+.skeletonDiagram > span:last-child { display: block; border-radius: var(--dsl-g-radius-control); }
+.skeletonLink { flex: 1; height: 2px; border-radius: 2px; }
+
+.skeletonMedia {
+  display: block;
+  height: 132px;
+  border-radius: var(--dsl-g-radius-control);
+}
+
+/* An object placeholder (button/divider) has no surface: it is not a block. */
+.skeletonInline {
+  background: none;
+  border-color: transparent;
+  padding: var(--dsl-g-gap-sm) 0;
+}
+
+/* Donut charts arrive as a ring: the legend sits beside it, like the real one. */
+.skeletonDonut { display: flex; align-items: center; gap: var(--dsl-g-gap-lg); }
+.skeletonRing {
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  /* A ring, not a white disc: same quiet fill as the other bars. */
+  border: 22px solid color-mix(in srgb, var(--dsw-alias-label-primary) 9%, transparent);
+  box-sizing: border-box;
+  animation: dsl-skeletonPulse 1.4s ease-in-out infinite;
+}
+@keyframes dsl-skeletonPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.skeletonLegend { display: flex; flex-direction: column; gap: var(--dsl-g-gap-sm); flex: 1; }
+.skeletonLegend > span { display: block; height: 9px; border-radius: var(--dsl-g-radius-pill); }
+
+.skeletonControl { display: block; width: 132px; height: 30px; border-radius: var(--dsl-g-radius-control); }
+.skeletonRule { display: block; width: 100%; height: 1px; border-radius: 1px; }
+
 .skeletonTitle,
 .skeletonBars > span,
-.skeletonBlock {
+.skeletonBlock,
+.skeletonHeading + .skeletonBars,
+.skeletonRows > span,
+.skeletonRowHead > span,
+.skeletonRow > span,
+.skeletonAxis,
+.skeletonChart .skeletonBars > span,
+.skeletonStat > span,
+.skeletonDiagram > span,
+.skeletonLink,
+.skeletonMedia,
+.skeletonControl,
+.skeletonRule,
+.skeletonRing,
+.skeletonLegend > span {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent) 0%,
-    color-mix(in srgb, var(--dsw-alias-label-primary) 13%, transparent) 50%,
-    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent) 100%
+    color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) 0%,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent) 50%,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) 100%
   );
   background-size: 200% 100%;
   animation: dsl-skeleton 1.4s ease-in-out infinite;
@@ -2067,10 +2222,24 @@ button.ftNameBtn[aria-expanded] { cursor: pointer; }
   100% { background-position: -200% 0; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .skeletonRing { animation: none; }
   .skeletonTitle,
   .skeletonBars > span,
-  .skeletonBlock { animation: none; }
+  .skeletonBlock,
+  .skeletonRows > span,
+  .skeletonRowHead > span,
+  .skeletonRow > span,
+  .skeletonAxis,
+  .skeletonStat > span,
+  .skeletonDiagram > span,
+  .skeletonMedia,
+  .skeletonControl { animation: none; }
 }
+
+/* The skeleton → component transition is animated in the DOM channel
+   (dom-fence: swapWithTransition) so it stays contained to the block: a
+   document-level View Transition cross-faded the whole page, which made the
+   prose below appear twice mid-flight. */
 
 /* ---------- staggered reveal ---------- */
 
@@ -2672,10 +2841,13 @@ button.ftNameBtn[aria-expanded] { cursor: pointer; }
 
 /* `card.flat`: a printed block, not a floating card. Figures in the reference
    style are drawn flat — elevation on every nested panel was what made the
-   first pass read as a stack of chips. */
+   first pass read as a stack of chips.
+   The faint wash is the design, so the fill stays opt-in: a skin that clears
+   the canvas can raise it to a real surface without every host losing the
+   printed look (issue #398). */
 .card.cardFlat {
   box-shadow: none;
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 2.5%, transparent);
+  background: var(--dsh-genui-surface-flat, color-mix(in srgb, var(--dsw-alias-label-primary) 2.5%, transparent));
   border-color: var(--dsl-g-border);
 }
 

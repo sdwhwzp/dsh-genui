@@ -630,6 +630,12 @@ export interface GenuiTable {
   filterColumn?: number
   /** Field id of a select whose value is a column header: sorts by it locally. */
   sortField?: string
+  /** Lay a long-text table out like prose instead of a data grid: the table
+   *  tracks the container width and every cell wraps, so a column of full
+   *  sentences can wrap. Columns retain a readable minimum width, so narrow
+   *  containers may still scroll. Omit (or `false`) for the data-table voice:
+   *  nowrap cells and horizontal scroll on overflow (see #326). */
+  wrap?: boolean
 }
 
 /** How a table column's cells render.
@@ -1155,15 +1161,16 @@ export function parseGenuiSpec(raw: string): GenuiSpec | null {
  * both readings are components. A whitelisted `type` therefore wins over the
  * envelope reading — `{"type":"steps","items":[{"title":"…"}]}` is a bare
  * steps node, never a spec whose `items` are the step records (issue #172).
- * A non-native `type` keeps the envelope reading, so a stray `type` field
- * (`{"type":"genui","items":[…]}`) cannot swallow a real spec root.
+ * Only the explicit `genui` document marker and the dual native `stack`
+ * envelope keep the envelope reading. Unknown component names must reach
+ * validation instead of silently rendering only their children.
  */
 export function isComponentRoot(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false
-  const v = value as { type?: unknown; items?: unknown }
+  const v = value as { type?: unknown; items?: unknown; children?: unknown }
   if (typeof v.type !== 'string' || v.type === '') return false
   if (!Array.isArray(v.items)) return true
-  return GENUI_NATIVE_TYPES.has(v.type)
+  return v.type !== 'genui' && !(v.type === 'stack' && Array.isArray(v.children))
 }
 
 /**
