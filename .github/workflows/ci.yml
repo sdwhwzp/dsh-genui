@@ -43,11 +43,37 @@ jobs:
           test -f "$DSH_ROOT/packages/client/ui-primitives/src/index.ts" || { echo "::error::宿主预检失败：ui-primitives 源码缺失"; exit 1; }
           echo "HOST_SHA=$(git -C "$DSH_ROOT" rev-parse HEAD)" >> "$GITHUB_ENV"
 
+      # Reuse a completed store for the same immutable host and package manager.
+      # SheetJS CDN timeouts must not repeatedly prevent the other runtime lane
+      # from reaching plugin checks; pnpm still verifies the frozen lockfile.
+      - name: Locate current host dependency store
+        if: matrix.role == 'current'
+        id: host_store
+        working-directory: ${{ github.workspace }}/../../.dsh/source/current
+        run: |
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+          echo "manager=$(pnpm --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore current host dependencies
+        if: matrix.role == 'current'
+        id: host_dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.host_store.outputs.path }}
+          key: dsh-host-${{ runner.os }}-${{ runner.arch }}-pnpm${{ steps.host_store.outputs.manager }}-${{ env.HOST_SHA }}
+
       - name: Install + build host
         working-directory: ${{ github.workspace }}/../../.dsh/source/current
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+
+      - name: Save completed current host dependencies
+        if: success() && matrix.role == 'current' && steps.host_dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.host_store.outputs.path }}
+          key: ${{ steps.host_dependencies.outputs.cache-primary-key }}
 
       - name: Install plugin dependencies
         run: pnpm install --frozen-lockfile

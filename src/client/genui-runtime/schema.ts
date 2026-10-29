@@ -59,6 +59,10 @@ export interface ComponentSchema {
 
 
 /** Canonical enum domains shared by schema validation and repair. */
+/** Comparison operators a `when` condition can use (kept with the other
+ * runtime enums: `spec.ts` imports this module, so the list lives here). */
+export const WHEN_OPS = ['eq', 'neq', 'in', 'not-in', 'gt', 'gte', 'lt', 'lte', 'empty', 'not-empty', 'checked'] as const
+
 export const TEXT_SIZES = ['display', 'h1', 'h2', 'h3', 'body', 'muted', 'caption'] as const
 export const TEXT_ALIGNS = ['left', 'center', 'right'] as const
 export const BUTTON_TONES = ['primary', 'danger', 'success', 'ghost'] as const
@@ -68,6 +72,8 @@ export const CALLOUT_TONES = ['info', 'success', 'warning', 'error'] as const
 export const CHART_KINDS = ['bars', 'line', 'donut'] as const
 export const PLOT_KINDS = ['line', 'area', 'scatter'] as const
 export const MEDIA_ASPECT_RATIOS = ['16:9', '4:3', '1:1', '9:16'] as const
+export const COMPARE_MODES = ['side', 'stack', 'slider'] as const
+export const CHOICE_MODES = ['single', 'multi'] as const
 export const MESH_SHAPES = ['box', 'sphere', 'cone', 'cylinder', 'torus'] as const
 export const FILE_TYPES = ['file', 'dir'] as const
 export const DIAGRAM_KINDS = [
@@ -152,7 +158,14 @@ const recordSchema = (
   aliases: Readonly<Record<string, string>> = {},
 ): ComponentRecordSchema => ({ required, fields, enums, nested, aliases })
 
-const nodeFields = { type: 'string', span: 'number' } as const
+const nodeFields = {
+  type: 'string', span: 'number', when: 'object', enableWhen: 'object', disabledReason: 'string',
+} as const
+
+/** Conditional visibility carried by any node: `{ field, op, value? }`. */
+const whenSchema = recordSchema(['field', 'op'], {
+  field: 'string', op: 'string', value: 'unknown',
+}, {}, { op: WHEN_OPS })
 
 const chartDatumSchema = recordSchema(['label', 'value'], {
   label: 'string',
@@ -227,6 +240,17 @@ const imageGroupItemSchema = recordSchema(['src'], {
   src: 'string', alt: 'string', caption: 'string',
 }, {}, {}, { url: 'src', link: 'src' })
 
+/** One side of a `compare` pair: the same media policy, plus a visible chip. */
+/** One option row: label + cost + optional evidence and state. */
+const choiceItemSchema = recordSchema(['label'], {
+  label: 'string', hint: 'string', meta: 'string',
+  recommended: 'boolean', disabled: 'boolean', reason: 'string',
+}, {}, {}, {})
+
+const comparePanelSchema = recordSchema(['src'], {
+  src: 'string', label: 'string', alt: 'string', caption: 'string',
+}, {}, {}, { url: 'src', link: 'src' })
+
 const tabHolderSchema = recordSchema(['label', 'items'], {
   label: 'string',
   items: 'nodes',
@@ -298,7 +322,7 @@ export const SPEC_SCHEMA = GENUI_SPEC_SCHEMA
  * interfaces: the registry is also consumed at runtime by normalization and
  * diagnostics, where erased interfaces are unavailable.
  */
-export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
+const RAW_COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   // Thin connector for figures; the `↓` text glyph was the only option before.
   arrow: schema([], { ...nodeFields, dir: 'string', length: 'number', label: 'string' }, { direction: 'dir' }, { enums: { dir: ARROW_DIRS } }),
   accordion: schema(['items'], { ...nodeFields, items: 'array' }, {}, { nested: { items: accordionHolderSchema } }),
@@ -322,6 +346,34 @@ export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   card: schema(['items'], { ...nodeFields, title: 'string', eyebrow: 'string', items: 'nodes', tone: 'string', accent: 'string', flat: 'boolean' }, { label: 'title', content: 'items' }, { enums: { tone: CARD_TONES } }),
   carousel: schema(['items'], { ...nodeFields, items: 'nodes', title: 'string', itemWidth: 'number', gap: 'number' }, { children: 'items' }),
   'image-group': schema(['items'], { ...nodeFields, items: 'array', title: 'string' }, {}, { nested: { items: imageGroupItemSchema } }),
+  // Both sides are required: a "compare" with one side is a single image, and
+  // dropping the pair silently would leave a half-labelled figure.
+  // A decision list: options carry a cost, so the reader can choose instead of
+  // re-reading a paragraph. `radio` keeps the one-line quiz case.
+  choices: schema(['items'], {
+    ...nodeFields,
+    title: 'string',
+    prompt: 'string',
+    mode: 'string',
+    items: 'array',
+    submit: 'string',
+    action: 'string',
+    max: 'number',
+    group: 'string',
+    answer: 'unknown',
+    explanation: 'string',
+  }, {}, { nested: { items: choiceItemSchema }, enums: { mode: CHOICE_MODES } }),
+  compare: schema(['before', 'after'], {
+    ...nodeFields,
+    title: 'string',
+    before: 'object',
+    after: 'object',
+    mode: 'string',
+    height: 'number',
+  }, {}, {
+    nested: { before: comparePanelSchema, after: comparePanelSchema },
+    enums: { mode: COMPARE_MODES },
+  }),
   chart: schema([], {
     ...nodeFields,
     kind: 'string',
@@ -412,5 +464,16 @@ export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   timeline: schema(['items'], { ...nodeFields, items: 'array' }, {}, { nested: { items: timelineRecordSchema } }),
   video: schema(['src'], { ...nodeFields, src: 'string', alt: 'string', poster: 'string', loop: 'boolean', muted: 'boolean', aspectRatio: 'string' }, { url: 'src', link: 'src' }, { enums: { aspectRatio: MEDIA_ASPECT_RATIOS } }),
 } as const
+
+/**
+ * Every node can carry a `when` condition, so the record schema is attached to
+ * each component once here instead of being repeated in forty literal entries.
+ */
+export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = Object.fromEntries(
+  Object.entries(RAW_COMPONENT_SCHEMAS).map(([type, base]) => [type, {
+    ...base,
+    nested: { ...base.nested, when: whenSchema, enableWhen: whenSchema },
+  }]),
+)
 
 export const GENUI_NATIVE_TYPES: ReadonlySet<string> = new Set(Object.keys(COMPONENT_SCHEMAS))

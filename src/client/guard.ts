@@ -18,10 +18,10 @@
  * - The whole spec carries a node budget; once exhausted, remaining siblings
  *   are elided.
  */
-import type { GenuiComputed, GenuiComputedFormat, GenuiComputedRef, GenuiFileTreeNode, GenuiList, GenuiNode, GenuiPlot, GenuiPlotSeries, GenuiScene3D, GenuiSpec, GenuiDiagram, GenuiDiagramTheme, GenuiDiagramKind } from './spec.ts'
+import type { GenuiWhen, GenuiComparePanel, GenuiComputed, GenuiComputedFormat, GenuiComputedRef, GenuiFileTreeNode, GenuiList, GenuiNode, GenuiPlot, GenuiPlotSeries, GenuiScene3D, GenuiSpec, GenuiDiagram, GenuiDiagramTheme, GenuiDiagramKind } from './spec.ts'
 import { isComponentRoot, wrapSingleComponentRoot } from './spec.ts'
 import {
-  BADGE_TONES, BUTTON_TONES, CALLOUT_TONES, CARD_TONES, CHART_KINDS, COMPONENT_SCHEMAS, HERO_TONES,
+  BADGE_TONES, BUTTON_TONES, CALLOUT_TONES, CARD_TONES, CHART_KINDS, CHOICE_MODES, COMPARE_MODES, COMPONENT_SCHEMAS, HERO_TONES, WHEN_OPS,
   DIAGRAM_EDGE_KINDS, DIAGRAM_KINDS, DIAGRAM_NODE_TYPES, DIAGRAM_ROUTES, DIAGRAM_VARIANTS,
   ECHART_PRESETS, FILE_TYPES, GENUI_NATIVE_TYPES, GENUI_SPEC_SCHEMA, INPUT_TYPES,
   ARROW_DIRS, BLOCKS_VARIANTS, BLOCK_CELL_TONES, ICON_TONES, MEDIA_ASPECT_RATIOS, MESH_SHAPES, PLOT_KINDS, PROGRESS_VARIANTS, ROW_JUSTIFY, TABLE_CELL_TYPES, TEXT_ALIGNS, TEXT_SIZES, TEXT_TONES,
@@ -263,14 +263,43 @@ function sparkValues(v: unknown): number[] | undefined {
   return out.length >= 2 ? out : undefined
 }
 
-/** Layout hints are component-agnostic: `span` survives repair on ANY node
- *  (the renderer applies it inside a grid). Kept out of the per-case switches
- *  so a new component type cannot forget it. */
+/** Layout hints are component-agnostic: `span` and `when` survive repair on ANY
+ *  node (the renderer applies them inside a layout / before paint). Kept out of
+ *  the per-case switches so a new component type cannot forget them. */
 function repairNode(value: unknown, ctx: RepairCtx, depth: number): GenuiNode | null {
   const node = repairNodeFields(value, ctx, depth)
   if (node === null) return null
-  const span = int(obj(value)?.span, 2, 12)
-  return span === undefined ? node : ({ ...node, span } as GenuiNode)
+  const raw = obj(value)
+  const span = int(raw?.span, 2, 12)
+  const when = repairWhen(raw?.when)
+  const enableWhen = repairWhen(raw?.enableWhen)
+  const disabledReason = str(raw?.disabledReason, 200)
+  const extras = {
+    ...(span === undefined ? {} : { span }),
+    ...(when === undefined ? {} : { when }),
+    ...(enableWhen === undefined ? {} : { enableWhen }),
+    ...(disabledReason === undefined ? {} : { disabledReason }),
+  }
+  return Object.keys(extras).length === 0 ? node : ({ ...node, ...extras } as GenuiNode)
+}
+
+/** Repair a `when` clause; a malformed one is dropped (node stays visible). */
+function repairWhen(value: unknown): GenuiWhen | undefined {
+  const v = obj(value)
+  if (v === undefined) return undefined
+  const field = str(v.field, 80)
+  const op = enu(v.op, WHEN_OPS)
+  if (field === undefined || op === undefined) return undefined
+  const raw = v.value
+  const value_ = Array.isArray(raw)
+    ? (raw.length > 0 && raw.length <= 12
+      ? raw.filter(entry => typeof entry === 'string' || typeof entry === 'number')
+        .map(entry => (typeof entry === 'number' ? entry : str(entry, 120) ?? ''))
+        .filter(entry => entry !== '')
+      : undefined)
+    : (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean' ? raw : undefined)
+  const value2 = Array.isArray(value_) && value_.length === 0 ? undefined : value_
+  return { field, op, ...(value2 === undefined ? {} : { value: value2 }) }
 }
 
 function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiNode | null {
@@ -382,6 +411,64 @@ function repairNodeFields(value: unknown, ctx: RepairCtx, depth: number): GenuiN
         return [{ src, ...opt('alt', str(item.alt, GENUI_LIMITS.maxString)), ...opt('caption', str(item.caption, GENUI_LIMITS.maxString)) }]
       })
       return { type: 'image-group', items, ...opt('title', str(v.title, GENUI_LIMITS.maxString)) }
+    }
+    case 'choices': {
+      const source = Array.isArray(v.items) ? v.items.slice(0, 8) : []
+      const items = source.flatMap(value => {
+        const item = obj(value)
+        const label = str(item?.label, 120)
+        if (item === undefined || label === undefined) return []
+        const disabled = item.disabled === true
+        return [{
+          label,
+          ...opt('hint', str(item.hint, 200)),
+          ...opt('meta', str(item.meta, 40)),
+          ...(item.recommended === true ? { recommended: true } : {}),
+          ...(disabled ? { disabled: true } : {}),
+          // A disabled option without a reason is a dead end; keep whatever the
+          // model wrote so the reader can see WHY.
+          ...opt('reason', str(item.reason, 200)),
+        }]
+      })
+      if (items.length === 0) return null
+      return {
+        type: 'choices', items,
+        ...opt('title', str(v.title, GENUI_LIMITS.maxString)),
+        ...opt('prompt', str(v.prompt, 400)),
+        ...opt('mode', enu(v.mode, CHOICE_MODES)),
+        ...opt('submit', str(v.submit, 60)),
+        ...opt('action', str(v.action, 200)),
+        ...opt('max', int(v.max, 1, items.length)),
+        ...opt('group', str(v.group, 60)),
+        ...opt('explanation', str(v.explanation, GENUI_LIMITS.maxString)),
+        // `answer` is an index OR a label; both are legal, so only the shape is
+        // checked here and the grader resolves it against the item list.
+        ...(typeof v.answer === 'number' || typeof v.answer === 'string' ? { answer: v.answer } : {}),
+      }
+    }
+    case 'compare': {
+      // A pair with one usable side is not a comparison: drop the node rather
+      // than ship a lone image under a two-sided caption.
+      const panel = (value: unknown): GenuiComparePanel | undefined => {
+        const item = obj(value)
+        const src = safeMediaSrc(item?.src)
+        if (item === undefined || src === undefined) return undefined
+        return {
+          src,
+          ...opt('label', str(item.label, 40)),
+          ...opt('alt', str(item.alt, GENUI_LIMITS.maxString)),
+          ...opt('caption', str(item.caption, GENUI_LIMITS.maxString)),
+        }
+      }
+      const before = panel(v.before)
+      const after = panel(v.after)
+      if (before === undefined || after === undefined) return null
+      return {
+        type: 'compare', before, after,
+        ...opt('title', str(v.title, GENUI_LIMITS.maxString)),
+        ...opt('mode', enu(v.mode, COMPARE_MODES)),
+        ...opt('height', int(v.height, 120, 640)),
+      }
     }
     case 'col': {
       return {
@@ -2139,6 +2226,18 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
     errors.push(`${at}: missing string 'type'`)
     return
   }
+  // `when` / `enableWhen` are valid on any node, so they are checked before the
+  // per-type switch.
+  for (const key of ['when', 'enableWhen'] as const) {
+    if (v[key] === undefined) continue
+    const when = obj(v[key])
+    if (when === undefined) { errors.push(`${at}.${key}: must be an object`); continue }
+    if (typeof when.field !== 'string' || when.field.trim() === '') errors.push(`${at}.${key}.field: requires a field id or group (string)`)
+    if (enu(when.op, WHEN_OPS) === undefined) errors.push(`${at}.${key}.op: must be one of ${WHEN_OPS.join(' / ')}`)
+    if ((when.op === 'in' || when.op === 'not-in') && !Array.isArray(when.value)) {
+      errors.push(`${at}.${key}.value: '${String(when.op)}' requires an array`)
+    }
+  }
   const isStr = (name: string): void => { if (v[name] !== undefined && typeof v[name] !== 'string') errors.push(`${at}: '${name}' must be a string`) }
   const isNum = (name: string): void => { if (v[name] !== undefined && (typeof v[name] !== 'number' || !Number.isFinite(v[name]))) errors.push(`${at}: '${name}' must be a finite number`) }
   switch (type) {
@@ -2166,6 +2265,40 @@ function validateNode(value: unknown, depth: number, at: string, errors: string[
           errors.push(`${at}.items[${index}].src must be an http(s) or relative media URL`)
         }
       })
+      break
+    case 'choices': {
+      if (!Array.isArray(v.items) || v.items.length === 0) {
+        errors.push(`${at}: type 'choices' requires items (non-empty array)`)
+        break
+      }
+      if (v.items.length > 8) errors.push(`${at}: 'choices' keeps at most 8 options`)
+      v.items.slice(0, 8).forEach((item: unknown, index: number) => {
+        const choice = obj(item)
+        if (choice === undefined || typeof choice.label !== 'string' || choice.label.trim() === '') {
+          errors.push(`${at}.items[${index}]: requires label (string)`)
+        }
+      })
+      isStr('title')
+      isStr('prompt')
+      isStr('mode')
+      isStr('submit')
+      break
+    }
+    case 'compare':
+      for (const side of ['before', 'after'] as const) {
+        const panel = obj(v[side])
+        if (panel === undefined) {
+          errors.push(`${at}: type 'compare' requires ${side} (object with src)`)
+          continue
+        }
+        if (typeof panel.src !== 'string') {
+          errors.push(`${at}.${side}: requires src (string)`)
+        } else if (safeMediaSrc(panel.src) === undefined) {
+          errors.push(`${at}.${side}.src must be an http(s) or relative media URL`)
+        }
+      }
+      isStr('title')
+      isStr('mode')
       break
     case 'image': case 'audio': case 'video':
       if (typeof v.src !== 'string') errors.push(`${at}: type '${type}' requires src (string)`)

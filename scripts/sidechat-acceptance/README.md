@@ -24,7 +24,7 @@ isolated context. There is no additional workflow, job, runner, or release.
 The GenUI tarball and digest come from the existing normal verification/pack
 step. The companion is fetched from the public
 [`sunxiuguo/DSH-better-sidebar` fork](https://github.com/sunxiuguo/DSH-better-sidebar)
-at immutable commit `34fbad8a75ca4e80af0375800378bcf7c4119d1d`
+at immutable commit `cd1251be2d61a75aac0fa2054fc09cdee8f62f08`
 ([draft companion PR](https://github.com/omdsh-dev/DSH-better-sidebar/pull/1033)).
 A fresh owned checkout verifies that exact detached object, honors the pinned
 repository's `pnpm@11.8.0`, and runs normal frozen install, typecheck, build, and

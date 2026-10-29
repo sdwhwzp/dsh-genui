@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { hostApplicability, validateSidechatMode, buildPinnedSidebar, runSidechatCI, SIDEBAR_COMMIT, SIDEBAR_REPOSITORY } from '../ci.mjs'
 import { checkSidechatBrowser } from '../scripts/sidechat-browser-checks.mjs'
 
-function pack(name, version = '0.28.0', scripts) {
+function pack(name, version = '0.29.0', scripts) {
   const body = Buffer.from(JSON.stringify({ name, version, ...(scripts ? { scripts } : {}) }))
   const header = Buffer.alloc(512)
   header.write('package/package.json'); header.write('0000644\0', 100)
@@ -34,7 +34,7 @@ async function fixture(t, version = '0.2.1-rc.3') {
     genuiTarball, genuiTarballSha256: sha(bytes), artifactDir: join(root, 'artifacts'),
     browser: { newContext() { throw Error('The pure wrapper contract must never open a browser') } } } }
 }
-function commandRecorder({ commit = SIDEBAR_COMMIT, name = 'dsh-better-sidebar', version = '0.28.0',
+function commandRecorder({ commit = SIDEBAR_COMMIT, name = 'dsh-better-sidebar', version = '0.29.0',
   packageManager = 'pnpm@11.8.0', packedName = name, packedVersion = version, extraPack = false, scripts,
   failAt, linkedPack = false } = {}) {
   const calls = [], roots = []
@@ -46,7 +46,7 @@ function commandRecorder({ commit = SIDEBAR_COMMIT, name = 'dsh-better-sidebar',
       await writeFile(join(cwd, 'package.json'), JSON.stringify({ name, version, packageManager }))
     }
     if (command === 'pnpm' && args[0] === 'pack') {
-      const output = join(args[2], 'dsh-better-sidebar-0.28.0.tgz'), bytes = pack(packedName, packedVersion, scripts)
+      const output = join(args[2], 'dsh-better-sidebar-0.29.0.tgz'), bytes = pack(packedName, packedVersion, scripts)
       if (linkedPack) { const outside = join(dirname(cwd), 'outside.tgz'); await writeFile(outside, bytes); await symlink(outside, output) }
       else await writeFile(output, bytes)
       if (extraPack) await writeFile(join(args[2], 'stale.tgz'), bytes)

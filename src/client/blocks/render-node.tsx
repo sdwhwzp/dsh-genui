@@ -8,6 +8,7 @@ import { type ReactNode, useEffect, useState, type CSSProperties } from 'react'
 import css from '../GenuiBlock.module.css'
 import { GENUI_LIMITS } from '../genui-runtime/index.ts'
 import { renderInline } from '../inline.ts'
+import { evaluateWhen } from '../conditions.ts'
 import { classifyLinkTarget } from '../file-link.ts'
 import { FileLink } from '../file-link-context.tsx'
 import { t } from '../i18n/index.ts'
@@ -27,6 +28,8 @@ import { DiagramNode } from './diagram/index.tsx'
 import { ImageNode } from './image.tsx'
 import { CarouselNode } from './carousel.tsx'
 import { ImageGroupNode } from './image-group.tsx'
+import { CompareNode } from './compare.tsx'
+import { ChoicesNode } from './choices.tsx'
 import { SvgNode } from './svg.tsx'
 import { IconNode } from './icon.tsx'
 import { MapNode } from './map.tsx'
@@ -129,7 +132,10 @@ function useCountUp(target: number, decimals: number, enabled: boolean): string 
     const start = performance.now()
     const duration = 720
     const tick = (now: number): void => {
-      const t = Math.min(1, (now - start) / duration)
+      // Clamp both ends: performance.now() is monotonic in a browser, but a
+      // suspended tab or a virtual clock can return a stamp before `start`, and
+      // a negative t eased below zero (a metric briefly rendered -5.69%).
+      const t = Math.min(1, Math.max(0, (now - start) / duration))
       const eased = 1 - Math.pow(1 - t, 3)
       setValue(target * eased)
       if (t < 1) raf = requestAnimationFrame(tick)
@@ -175,7 +181,75 @@ function boundField(answers: AnswersState | undefined, id: string | undefined): 
   return value === undefined || value === '' ? undefined : value
 }
 
+/** True when a container would paint a shell with no content in it. */
+function showsNothing(node: GenuiNode): boolean {
+  switch (node.type) {
+    // `card` is NOT here: a childless card still has a title/eyebrow to render
+    // (flat, without the shell) — see the card case below.
+    case 'grid':
+    case 'row':
+    case 'col':
+    case 'list':
+      return node.items.length === 0
+    case 'file-tree':
+      return node.items.length === 0
+    case 'table':
+      return node.rows.length === 0
+    case 'steps':
+      return node.steps.length === 0
+    case 'keyvalue':
+      return node.pairs.length === 0
+    case 'mermaid':
+      return node.code.trim() === ''
+    case 'diagram':
+      return node.nodes.length === 0
+    default:
+      return false
+  }
+}
+
+/**
+ * Render a node, applying its layout gate first.
+ *
+ * `when` hides the node; `enableWhen` keeps it on screen but inert. The inert
+ * wrapper covers the whole subtree with the HTML `inert` attribute plus
+ * `pointer-events: none`, so every control inside it — including ones added
+ * later — stops responding without each component having to know about the
+ * gate. `disabledReason` says what unlocks it; a disabled control with no
+ * explanation is a dead end.
+ */
 export function renderNode(
+  node: GenuiNode,
+  key: number,
+  onAction: GenuiBlockProps['onAction'] | undefined,
+  depth = 0,
+  answers?: AnswersState,
+  path = `items[${key}]`,
+): ReactNode {
+  const rendered = renderNodeBody(node, key, onAction, depth, answers, path)
+  if (rendered === null || node.enableWhen === undefined) return rendered
+  // Without block state the condition cannot be evaluated: stay enabled rather
+  // than disable a control for a reason the renderer cannot see.
+  if (answers === undefined || evaluateWhen(node.enableWhen, answers)) return rendered
+  return (
+    <div key={key} className={css.nodeGate} data-genui-gated="" aria-disabled="true" {...{ inert: '' }}>
+      {rendered}
+      <span className={css.nodeGateReason}>{renderInline(node.disabledReason ?? t('block.gateReason'), false)}</span>
+    </div>
+  )
+}
+
+/**
+ * Render a node, applying its layout gate first.
+ *
+ * `when` hides the node; `enableWhen` keeps it on screen but inert. The inert
+ * wrapper covers the whole subtree with the HTML `inert` attribute plus
+ * `pointer-events: none`, so every control inside it — including ones added
+ * later — stops responding without each component having to know about the
+ * gate. `disabledReason` says what unlocks it; a disabled control with no
+ * explanation is a dead end.
+ */
+function renderNodeBody(
   node: GenuiNode,
   key: number,
   onAction: GenuiBlockProps['onAction'] | undefined,
@@ -185,6 +259,16 @@ export function renderNode(
   // one node (or container) in several positions. Match walkGenuiNodes paths.
   path = `items[${key}]`,
 ): ReactNode {
+  // Empty containers are dropped whole. A `card` with no children used to
+  // render its border + title with nothing inside, a table rendered a header row
+  // over no body, and an empty `diagram`/`file-tree` drew a framed blank — all
+  // of which read as "failed to load" rather than "nothing to show". The spec
+  // still validates; only the paint is suppressed.
+  if (showsNothing(node)) return null
+  // Conditional visibility: a node carrying `when` renders only while the
+  // condition holds. Without block state (export/panel) there is nothing to read,
+  // so the node stays visible rather than silently dropping content.
+  if (node.when !== undefined && answers !== undefined && !evaluateWhen(node.when, answers)) return null
   // Depth guard: a pathological spec must never recurse past the limit
   // (stack overflow / DOM explosion). The fence path already repairs specs
   // against the same limit; this is the belt-and-suspenders for direct
@@ -249,6 +333,18 @@ export function renderNode(
       )
     }
     case 'card': {
+      // No children: the shell is noise, but a title/eyebrow is real content (it
+      // can carry inline math), so render the text flat instead of either boxing
+      // it or dropping it.
+      if (node.items.length === 0) {
+        if (node.title === undefined && node.eyebrow === undefined) return null
+        return (
+          <div key={key} className={css.cardFlatText}>
+            {node.eyebrow !== undefined && <div className={css.cardEyebrow}>{renderInline(node.eyebrow)}</div>}
+            {node.title !== undefined && <div className={css.cardTitle}>{renderInline(node.title)}</div>}
+          </div>
+        )
+      }
       const toneClass = node.tone === undefined ? '' : ` ${css[`card${node.tone[0]!.toUpperCase()}${node.tone.slice(1)}`] ?? ''}`
       // An explicit accent drives border + title + a very light wash; it is a
       // colour hint, not a layout change, so it composes with tone.
@@ -311,6 +407,8 @@ export function renderNode(
         renderNode(child, index, onAction, depth + 1, answers, `${path}.items[${index}]`))
     }</CarouselNode>
     case 'image-group': return <ImageGroupNode key={key} node={node} />
+    case 'compare': return <CompareNode key={key} node={node} />
+    case 'choices': return <ChoicesNode key={JSON.stringify([path, node.group, answers?.round ?? 0])} node={node} onAction={onAction} answers={answers} />
     case 'image': return <ImageNode key={`${key}:${node.src}`} node={node} />
     case 'audio': return <AudioNode key={`${key}:${node.src}`} node={node} />
     case 'video': return <VideoNode key={`${key}:${node.src}`} node={node} />
