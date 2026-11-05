@@ -8,7 +8,7 @@
  * v1 interactivity is client-side only: buttons, tabs, checkboxes, and inputs
  * are operable, but events do NOT flow back to the model.
  */
-import { COMPONENT_SCHEMAS, GENUI_NATIVE_TYPES, WHEN_OPS } from './genui-runtime/schema.ts'
+import { COMPONENT_SCHEMAS, GENUI_NATIVE_TYPES, POPOVER_PLACEMENTS, WHEN_OPS } from './genui-runtime/schema.ts'
 
 /** One node in the component tree. */
 /** Layout hints accepted by every node: `span` is how many columns the node
@@ -17,17 +17,16 @@ import { COMPONENT_SCHEMAS, GENUI_NATIVE_TYPES, WHEN_OPS } from './genui-runtime
 export type GenuiWhenOp = typeof WHEN_OPS[number]
 
 /**
- * Show a node only while another field holds a value. The field is read from
- * the block's own state (`input/select/slider/textarea` by `id`; `radio`,
- * `checkbox` and `choices` by `group`), so a decision tree needs no model round
- * trip: picking "公司" reveals the tax-id field immediately.
+ * 根据区块自身保存的字段值控制节点显示：输入类组件、地图和图解使用 `id`，
+ * `radio`、`checkbox` 和 `choices` 使用 `group`。例如选择“公司”后，
+ * 可以立即显示税号输入框。
  *
  * Hidden nodes are not rendered, and their values are excluded from the sibling
  * `submit` payload — a hidden field must never submit a stale value the reader
  * cannot see.
  */
 export interface GenuiWhen {
-  /** Field id or answer group to read. */
+  /** 要读取的字段 ID 或答案组名。 */
   field: string
   op: GenuiWhenOp
   /** Comparison target: a scalar for eq/neq/gt/…, a list for in/not-in. */
@@ -59,6 +58,8 @@ export type GenuiNode = (
   | GenuiButton
   | GenuiInput
   | GenuiSelect
+  | GenuiDatePicker
+  | GenuiSegmentedControl
   | GenuiCheckbox
   | GenuiLink
   | GenuiImage
@@ -105,6 +106,9 @@ export type GenuiNode = (
   | GenuiIcon
   | GenuiBlocks
   | GenuiArrow
+  | GenuiEditor
+  | GenuiEntityCard
+  | GenuiPopover
 ) & GenuiLayoutHints
 
   | (GenuiEChart & GenuiLayoutHints)
@@ -202,6 +206,49 @@ export interface GenuiText {
   align?: 'left' | 'center' | 'right'
 }
 
+/** Editable plain-text content whose draft is stored with the containing block. */
+export interface GenuiEditor {
+  type: 'editor'
+  id: string
+  value: string
+  label?: string
+  placeholder?: string
+  rows?: number
+}
+
+export interface GenuiEntityMetadata {
+  label: string
+  value: string
+}
+
+export interface GenuiEntityAction {
+  label: string
+  action: string
+  tone?: 'primary' | 'danger' | 'success' | 'ghost'
+}
+
+/** A compact summary for a person, product, place, or organization. */
+export interface GenuiEntityCard {
+  type: 'entity-card'
+  name: string
+  image?: string
+  imageAlt?: string
+  description?: string
+  metadata?: GenuiEntityMetadata[]
+  href?: string
+  sourceLabel?: string
+  actions?: GenuiEntityAction[]
+}
+
+/** A keyboard-operable floating explanation attached to a labelled trigger. */
+export interface GenuiPopover {
+  type: 'popover'
+  label: string
+  content: string
+  trigger?: 'click' | 'hover'
+  placement?: typeof POPOVER_PLACEMENTS[number]
+}
+
 export interface GenuiButton {
   type: 'button'
   label: string
@@ -245,6 +292,29 @@ export interface GenuiSelect {
    * input/textarea ids.
    */
   id?: string
+}
+
+/** 使用 ISO 日期或 ISO 日期区间的原生日期控件。 */
+export interface GenuiDatePicker {
+  type: 'date-picker'
+  label?: string
+  mode?: 'single' | 'range'
+  /** 单日期使用 ISO 日期；范围模式使用 `start/end` 两个 ISO 日期。 */
+  value?: string
+  min?: string
+  max?: string
+  /** 供共享状态和 submit 使用的字段标识。 */
+  id?: string
+}
+
+/** 可通过共享选中值更新同级组件的单选控件。 */
+export interface GenuiSegmentedControl {
+  type: 'segmented-control'
+  label?: string
+  options: string[]
+  value?: string
+  id?: string
+  action?: string
 }
 
 /** 保存计算后复选框显示文案对应的运行时身份。 */
@@ -1012,6 +1082,8 @@ export interface GenuiDiagramNode {
   label: string
   /** Optional technical sublabel (Geist mono in the renderer). */
   sub?: string
+  /** 选择节点后显示的说明。 */
+  description?: string
   /** Semantic treatment; `focal` is budgeted (max 2 per diagram). */
   type?: GenuiDiagramNodeType
   /** Position / size (coordinate-mode kinds only). 4px grid is enforced at render. */
@@ -1072,6 +1144,8 @@ export interface GenuiDiagramZone {
  */
 export interface GenuiDiagram {
   type: 'diagram'
+  /** 保存所选节点 ID，供周边组件读取。 */
+  id?: string
   /** The 27-type editorial vocabulary. */
   kind: GenuiDiagramKind
   /** Surface skin; default follows the host theme. */

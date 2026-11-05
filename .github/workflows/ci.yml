@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Superseded PR commits can stop; main and manual runs keep unique groups.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     strategy:
@@ -192,6 +197,21 @@ jobs:
       - name: Check optional table wrapping in real browser
         run: node scripts/check-table-wrap-browser.mjs
 
+      - name: Check semantic block contrast in real browser
+        run: node scripts/check-blocks-theme-browser.mjs
+        env:
+          BROWSER_BIN: google-chrome
+
+      - name: Check native interaction state in real browser
+        run: node scripts/check-interaction-state-browser.mjs
+        env:
+          BROWSER_BIN: google-chrome
+
+      - name: Check step marker line height in real browser
+        run: node scripts/check-steps-marker-browser.mjs
+        env:
+          BROWSER_BIN: google-chrome
+
       - name: Archive newline browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -200,6 +220,9 @@ jobs:
           path: |
             .e2e-artifacts/text-newlines/
             .e2e-artifacts/table-wrap/
+            .e2e-artifacts/blocks-theme/
+            .e2e-artifacts/interaction-state/
+            .e2e-artifacts/steps-marker/
           if-no-files-found: ignore
 
   windows-pack:
@@ -268,6 +291,58 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: published-alpha
+          retention-days: 7
+          include-hidden-files: true
+          path: |
+            gallery-*.png
+            gallery-*.json
+            computed-*.png
+            computed-*.json
+            .e2e-artifacts/map/map-*.png
+            .e2e-artifacts/map/map-*.json
+            .e2e-artifacts/map/map-offline.html
+          if-no-files-found: ignore
+
+  published-current:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Install plugin dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check published current API
+        run: pnpm run check:host-api dsh-v0.2.1-rc.5
+      - name: Install exact published current host
+        id: host
+        run: node scripts/prepare-published-host.mjs 0.2.1-rc.5
+      - name: Verify and pack plugin tarball
+        id: pack
+        run: node scripts/verify-pack.mjs --keep
+      - name: Current packed gallery and computed acceptance
+        run: node scripts/e2e.mjs --smoke --install tarball --tarball "${{ steps.pack.outputs.tarball }}" --tarball-sha256 "${{ steps.pack.outputs.sha256 }}" --port 3190
+        env:
+          DSH_ROOT: ${{ steps.host.outputs.root }}
+          DSH_BIN: ${{ steps.host.outputs.bin }}
+          DSH_HOST_LAYOUT: registry
+          DSH_HOST_VERSION: 0.2.1-rc.5
+      - name: Current packed Map browser acceptance
+        run: node scripts/e2e.mjs --smoke --map --install tarball --tarball "${{ steps.pack.outputs.tarball }}" --tarball-sha256 "${{ steps.pack.outputs.sha256 }}" --port 3190
+        env:
+          DSH_ROOT: ${{ steps.host.outputs.root }}
+          DSH_BIN: ${{ steps.host.outputs.bin }}
+          DSH_HOST_LAYOUT: registry
+          DSH_HOST_VERSION: 0.2.1-rc.5
+      - name: Archive current browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-current
           retention-days: 7
           include-hidden-files: true
           path: |

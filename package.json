@@ -1,7 +1,7 @@
 {
   "name": "@changfenhuang/dsh-genui",
   "description": "GenUI for DeepSeek Harness: interactive UI components rendered inline in assistant replies via the ```dsh-ui fence — layout, charts, plots, forms, quizzes, mermaid, 3D scenes, and an action event loop back to the model. Ships the fence-teaching host plugin, the browser renderer (client half), and the genui skill.",
-  "version": "0.15.0-dsh.20261029.1",
+  "version": "0.16.0-dsh.20261104.1",
   "icon": "./assets/genui-icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -157,6 +157,7 @@
     "@deepseek-ai/dsh-util-values": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-workspace": "0.2.2-alpha.2",
+    "@floating-ui/react": "^0.27.20",
     "@shikijs/langs": "4.5.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.0.0",

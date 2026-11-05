@@ -68,12 +68,15 @@ export const TEXT_ALIGNS = ['left', 'center', 'right'] as const
 export const BUTTON_TONES = ['primary', 'danger', 'success', 'ghost'] as const
 export const BADGE_TONES = ['success', 'warn', 'danger', 'accent'] as const
 export const INPUT_TYPES = ['text', 'email', 'password', 'color', 'number'] as const
+export const DATE_PICKER_MODES = ['single', 'range'] as const
 export const CALLOUT_TONES = ['info', 'success', 'warning', 'error'] as const
 export const CHART_KINDS = ['bars', 'line', 'donut'] as const
 export const PLOT_KINDS = ['line', 'area', 'scatter'] as const
 export const MEDIA_ASPECT_RATIOS = ['16:9', '4:3', '1:1', '9:16'] as const
 export const COMPARE_MODES = ['side', 'stack', 'slider'] as const
 export const CHOICE_MODES = ['single', 'multi'] as const
+export const POPOVER_TRIGGERS = ['click', 'hover'] as const
+export const POPOVER_PLACEMENTS = ['top', 'top-start', 'top-end', 'right', 'right-start', 'right-end', 'bottom', 'bottom-start', 'bottom-end', 'left', 'left-start', 'left-end'] as const
 export const MESH_SHAPES = ['box', 'sphere', 'cone', 'cylinder', 'torus'] as const
 export const FILE_TYPES = ['file', 'dir'] as const
 export const DIAGRAM_KINDS = [
@@ -240,6 +243,9 @@ const imageGroupItemSchema = recordSchema(['src'], {
   src: 'string', alt: 'string', caption: 'string',
 }, {}, {}, { url: 'src', link: 'src' })
 
+const entityMetadataSchema = recordSchema(['label', 'value'], { label: 'string', value: 'string' })
+const entityActionSchema = recordSchema(['label', 'action'], { label: 'string', action: 'string', tone: 'string' }, {}, { tone: BUTTON_TONES })
+
 /** One side of a `compare` pair: the same media policy, plus a visible chip. */
 /** One option row: label + cost + optional evidence and state. */
 const choiceItemSchema = recordSchema(['label'], {
@@ -266,6 +272,7 @@ const diagramNodeSchema = recordSchema(['id', 'label'], {
   id: 'string',
   label: 'string',
   sub: 'string',
+  description: 'string',
   type: 'string',
   x: 'number',
   y: 'number',
@@ -346,6 +353,13 @@ const RAW_COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   card: schema(['items'], { ...nodeFields, title: 'string', eyebrow: 'string', items: 'nodes', tone: 'string', accent: 'string', flat: 'boolean' }, { label: 'title', content: 'items', body: 'items' }, { enums: { tone: CARD_TONES } }),
   carousel: schema(['items'], { ...nodeFields, items: 'nodes', title: 'string', itemWidth: 'number', gap: 'number' }, { children: 'items' }),
   'image-group': schema(['items'], { ...nodeFields, items: 'array', title: 'string' }, {}, { nested: { items: imageGroupItemSchema } }),
+  editor: schema(['id', 'value'], { ...nodeFields, id: 'string', value: 'string', label: 'string', placeholder: 'string', rows: 'number' }),
+  'entity-card': schema(['name'], {
+    ...nodeFields, name: 'string', image: 'string', imageAlt: 'string', description: 'string', metadata: 'array', href: 'string', sourceLabel: 'string', actions: 'array',
+  }, {}, { nested: { metadata: entityMetadataSchema, actions: entityActionSchema } }),
+  popover: schema(['label', 'content'], {
+    ...nodeFields, label: 'string', content: 'string', trigger: 'string', placement: 'string',
+  }, {}, { enums: { trigger: POPOVER_TRIGGERS, placement: POPOVER_PLACEMENTS } }),
   // Both sides are required: a "compare" with one side is a single image, and
   // dropping the pair silently would leave a half-labelled figure.
   // A decision list: options carry a cost, so the reader can choose instead of
@@ -398,7 +412,7 @@ const RAW_COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   code: schema(['code'], { ...nodeFields, lang: 'string', code: 'string' }, { content: 'code', text: 'code' }),
   col: schema(['items'], { ...nodeFields, items: 'nodes', gap: 'number', width: 'number' }),
   copy: schema(['text'], { ...nodeFields, label: 'string', text: 'string', expandable: 'boolean', previewLines: 'number' }, { content: 'text', code: 'text', value: 'text' }),
-  diagram: schema(['kind', 'nodes'], { ...nodeFields, kind: 'string', variant: 'string', title: 'string', nodes: 'array', edges: 'array', zones: 'array', theme: 'object' }, {}, {
+  diagram: schema(['kind', 'nodes'], { ...nodeFields, id: 'string', kind: 'string', variant: 'string', title: 'string', nodes: 'array', edges: 'array', zones: 'array', theme: 'object' }, {}, {
     nested: { nodes: diagramNodeSchema, edges: diagramEdgeSchema, zones: diagramZoneSchema, theme: diagramThemeSchema },
     enums: { kind: DIAGRAM_KINDS, variant: DIAGRAM_VARIANTS },
   }),
@@ -424,6 +438,7 @@ const RAW_COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   icon: schema(['name'], { ...nodeFields, name: 'string', label: 'string', tone: 'string', size: 'number', tile: 'boolean' }, { icon: 'name' }, { enums: { tone: ICON_TONES } }),
   image: schema(['src'], { ...nodeFields, src: 'string', alt: 'string', caption: 'string' }, { url: 'src', link: 'src' }),
   input: schema([], { ...nodeFields, label: 'string', placeholder: 'string', value: 'string', inputType: 'string', action: 'string', id: 'string' }, {}, { enums: { inputType: INPUT_TYPES } }),
+  'date-picker': schema([], { ...nodeFields, label: 'string', mode: 'string', value: 'string', min: 'string', max: 'string', id: 'string' }, {}, { enums: { mode: DATE_PICKER_MODES } }),
   json: schema(['value'], { ...nodeFields, value: 'unknown' }),
   keyvalue: schema(['pairs'], { ...nodeFields, pairs: 'array' }, { items: 'pairs', rows: 'pairs', entries: 'pairs' }, { nested: { pairs: keyValueRecordSchema } }),
   link: schema(['label'], { ...nodeFields, label: 'string', href: 'string' }),
@@ -441,6 +456,7 @@ const RAW_COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
   row: schema(['items'], { ...nodeFields, items: 'nodes', wrap: 'boolean', spacer: 'boolean', justify: 'string' }, {}, { enums: { justify: ROW_JUSTIFY } }),
   scene3d: schema(['meshes'], { ...nodeFields, title: 'string', meshes: 'array', ambient: 'number', background: 'string' }, {}, { nested: { meshes: sceneMeshSchema } }),
   select: schema(['options'], { ...nodeFields, label: 'string', options: 'array', action: 'string', selected: 'number', id: 'string' }, { items: 'options' }),
+  'segmented-control': schema(['options'], { ...nodeFields, label: 'string', options: 'array', value: 'string', id: 'string', action: 'string' }),
   slider: schema([], { ...nodeFields, label: 'string', min: 'number', max: 'number', step: 'number', value: 'number', action: 'string', id: 'string' }),
   spacer: schema([], nodeFields),
   hero: schema(['title'], {
